@@ -6,8 +6,8 @@ parameters over a loopback socket, so no Configure step is needed. Instances
 publish themselves in ~/Library/Application Support/ClaudePluginHost/instances/.
 
 Pick an instance with --tag N (the "Instance Tag" Live shows on the device and
-AbletonMCP's get_device_parameters can read), --track NAME, or nothing when
-only one instance is running.
+AbletonMCP's get_device_parameters can read), --track NAME (the Live track
+name, or part of it), or nothing when only one instance is running.
 
 Usage:
   host_ctl.py instances
@@ -19,6 +19,8 @@ Usage:
   host_ctl.py [...] get PARAM                  # PARAM = name (or unique part) or index
   host_ctl.py [...] set PARAM VALUE            # VALUE: 0..1 normalized
   host_ctl.py [...] set PARAM --text "2.5 kHz" # real units, as the plugin displays them
+  host_ctl.py [...] set-many "Band 1 State=1" "Band 1 Frequency=250 Hz" ...
+                                               # several text changes, in order, one round trip
   host_ctl.py [...] programs                   # factory presets the plugin exposes
   host_ctl.py [...] program INDEX
   host_ctl.py [...] raw '{"cmd": "info"}'
@@ -57,16 +59,27 @@ def instances():
     return sorted(found, key=lambda i: (i.get("track", ""), i.get("tag", 0)))
 
 
+def track_name(info):
+    """The Live track name. Live reports it as "<device name>/<track name>"."""
+    track = info.get("track", "")
+    product = info.get("product", "")
+    if product and track.startswith(product + "/"):
+        return track[len(product) + 1:]
+    return track
+
+
 def pick(args):
     found = instances()
     if args.tag is not None:
         found = [i for i in found if i.get("tag") == args.tag]
     if args.track:
-        found = [i for i in found if args.track.lower() in i.get("track", "").lower()]
+        wanted = args.track.lower()
+        exact = [i for i in found if track_name(i).lower() == wanted]
+        found = exact or [i for i in found if wanted in track_name(i).lower()]
     if not found:
         sys.exit("No matching Claude Host instance. Is one loaded in Live? (run: host_ctl.py instances)")
     if len(found) > 1:
-        rows = "\n".join(f"  tag {i['tag']}: {i.get('plugin') or 'empty'} on {i.get('track') or '?'}" for i in found)
+        rows = "\n".join(f"  tag {i['tag']}: {i.get('plugin') or 'empty'} on {track_name(i) or '?'}" for i in found)
         sys.exit(f"Several instances match; pass --tag:\n{rows}")
     return found[0]
 
@@ -122,6 +135,16 @@ def main():
                 req["value"] = float(rest[1])
             else:
                 sys.exit("set needs VALUE (0..1) or --text")
+    elif cmd == "set-many":
+        changes = []
+        for item in rest:
+            if "=" not in item:
+                sys.exit(f'set-many takes "PARAM=TEXT" items; got {item!r}')
+            param, text = item.split("=", 1)
+            changes.append({"param": param.strip(), "text": text.strip()})
+        if not changes:
+            sys.exit("set-many needs at least one PARAM=TEXT")
+        req = {"cmd": "set_many", "changes": changes}
     elif cmd == "programs":
         req = {"cmd": "programs"}
     elif cmd == "program":
@@ -134,7 +157,7 @@ def main():
     target = pick(a)
     reply = send(target["port"], req)
     print(json.dumps(reply, indent=1))
-    sys.exit(0 if reply.get("ok") else 1)
+    sys.exit(0 if reply.get("ok") and reply.get("allOk", True) else 1)
 
 
 if __name__ == "__main__":

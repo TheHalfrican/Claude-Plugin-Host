@@ -128,6 +128,9 @@ def test_tag_and_track_select_an_instance(registry):
     (["get", "12"], {"cmd": "get", "param": 12}),
     (["set", "Band 1 Gain", "0.25"], {"cmd": "set", "param": "Band 1 Gain", "value": 0.25}),
     (["set", "Band 1 Frequency", "--text", "250 Hz"], {"cmd": "set", "param": "Band 1 Frequency", "text": "250 Hz"}),
+    (["set-many", "Band 1 State=1", "Band 1 Frequency = 250 Hz"],
+     {"cmd": "set_many", "changes": [{"param": "Band 1 State", "text": "1"},
+                                     {"param": "Band 1 Frequency", "text": "250 Hz"}]}),
     (["programs"], {"cmd": "programs"}),
     (["program", "3"], {"cmd": "set_program", "index": 3}),
     (["raw", '{"cmd": "info", "x": 1}'], {"cmd": "info", "x": 1}),
@@ -139,7 +142,7 @@ def test_commands_send_the_right_request(registry, fake, args, expected):
     assert fake.requests == [expected]
 
 
-@pytest.mark.parametrize("args", [["set", "Gain"], ["get"], ["bogus"]])
+@pytest.mark.parametrize("args", [["set", "Gain"], ["get"], ["bogus"], ["set-many"], ["set-many", "no-equals"]])
 def test_incomplete_commands_fail_without_contacting_the_host(registry, fake, args):
     register(registry, "a", fake.port, 5)
     assert host_ctl(registry, *args).returncode != 0
@@ -155,3 +158,34 @@ def test_host_errors_give_a_nonzero_exit(registry):
         assert json.loads(result.stdout)["error"] == 'no parameter named "x"'
     finally:
         failing.close()
+
+
+def test_track_matches_the_live_track_name_without_the_device_prefix(registry):
+    bass, bass_echo = FakeHost(), FakeHost()
+    try:
+        register(registry, "a", bass.port, 5, track="Claude Host FX/Bass")
+        register(registry, "b", bass_echo.port, 6, track="Claude Host FX/Bass Echo")
+        for entry in registry.glob("*.json"):
+            data = json.loads(entry.read_text())
+            data["product"] = "Claude Host FX"
+            entry.write_text(json.dumps(data))
+
+        # "Bass" matches both by substring, but one exactly: pick that one.
+        assert host_ctl(registry, "--track", "bass", "info").returncode == 0
+        assert len(bass.requests) == 1 and bass_echo.requests == []
+
+        # The device prefix is not part of the track name.
+        result = host_ctl(registry, "--track", "Claude Host", "info")
+        assert result.returncode != 0
+    finally:
+        bass.close()
+        bass_echo.close()
+
+
+def test_set_many_partial_failure_gives_a_nonzero_exit(registry):
+    partial = FakeHost(reply={"ok": True, "allOk": False, "results": [{"ok": True}, {"ok": False, "error": "x"}]})
+    try:
+        register(registry, "a", partial.port, 5)
+        assert host_ctl(registry, "set-many", "A=1", "B=2").returncode == 1
+    finally:
+        partial.close()

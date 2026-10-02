@@ -4,7 +4,8 @@
 #   tests/validate_plugin.sh [build-dir]      (default: ./build)
 #   PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh
 #
-# Build and install first: cmake --build build --target ClaudeHostFX_All
+# Build and install first:
+#   cmake --build build --target ClaudeHostFX_All ClaudeHostInst_All
 set -euo pipefail
 
 BUILD_DIR="${1:-build}"
@@ -13,23 +14,36 @@ PLUGINVAL_VERSION="v1.0.4"
 TOOLS_DIR="$BUILD_DIR/tools"
 PLUGINVAL="$TOOLS_DIR/pluginval.app/Contents/MacOS/pluginval"
 
-AU_PATH="$HOME/Library/Audio/Plug-Ins/Components/Claude Host FX.component"
-VST3_PATH="$HOME/Library/Audio/Plug-Ins/VST3/Claude Host FX.vst3"
+COMPONENTS="$HOME/Library/Audio/Plug-Ins/Components"
+VST3S="$HOME/Library/Audio/Plug-Ins/VST3"
+PLUGINS=(
+    "$COMPONENTS/Claude Host FX.component"
+    "$VST3S/Claude Host FX.vst3"
+    "$COMPONENTS/Claude Host Instrument.component"
+    "$VST3S/Claude Host Instrument.vst3"
+)
+# auval type, subtype, manufacturer for each AU
+AU_CODES=("aufx Chfx Clde" "aumu Chin Clde")
 
 failures=0
 step() { printf '\n=== %s\n' "$*"; }
 
-for p in "$AU_PATH" "$VST3_PATH"; do
-    [[ -e "$p" ]] || { echo "Missing $p (build target ClaudeHostFX_All first)"; exit 1; }
+for p in "${PLUGINS[@]}"; do
+    [[ -e "$p" ]] || { echo "Missing $p (build ClaudeHostFX_All and ClaudeHostInst_All first)"; exit 1; }
 done
 
-step "auval (Audio Unit)"
+# Only our own AUs, by code. Never scan every AU: macOS then checks each
+# installed component and pops up dialogs for unsigned third-party ones.
 killall -9 AudioComponentRegistrar 2>/dev/null || true
-if auval -v aufx Chfx Clde | tee "$BUILD_DIR/auval.log" | tail -3 | grep -q "AU VALIDATION SUCCEEDED"; then
-    echo "auval: PASS"
-else
-    echo "auval: FAIL (see $BUILD_DIR/auval.log)"; failures=$((failures + 1))
-fi
+for codes in "${AU_CODES[@]}"; do
+    step "auval $codes"
+    log="$BUILD_DIR/auval-${codes// /_}.log"
+    if auval -v $codes > "$log" 2>&1 && tail -3 "$log" | grep -q "AU VALIDATION SUCCEEDED"; then
+        echo "auval $codes: PASS"
+    else
+        echo "auval $codes: FAIL (see $log)"; failures=$((failures + 1))
+    fi
+done
 
 if [[ ! -x "$PLUGINVAL" ]]; then
     step "Downloading pluginval $PLUGINVAL_VERSION"
@@ -39,7 +53,7 @@ if [[ ! -x "$PLUGINVAL" ]]; then
     unzip -qo "$TOOLS_DIR/pluginval.zip" -d "$TOOLS_DIR"
 fi
 
-for p in "$AU_PATH" "$VST3_PATH"; do
+for p in "${PLUGINS[@]}"; do
     name="$(basename "$p")"
     step "pluginval strictness $STRICTNESS: $name"
     log="$BUILD_DIR/pluginval-${name// /_}.log"

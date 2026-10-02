@@ -39,7 +39,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLAUDE_HOST_PYTHON="$PWD/.venv/bin/python"
 
       - name: Build tests
-        run: cmake --build build --target ClaudeHostTests
+        run: cmake --build build --target ClaudeHostTests ClaudeHostInstTests
 
       - name: Unit, integration and client tests
         run: ctest --test-dir build -LE validation --output-on-failure
@@ -49,7 +49,7 @@ jobs:
       # so they only run by hand.
       - name: Build plugins (GitHub)
         if: env.ON_GITEA != 'true'
-        run: cmake --build build --target ClaudeHostFX_All
+        run: cmake --build build --target ClaudeHostFX_All ClaudeHostInst_All
 
       - name: Plugin validation, auval + pluginval (GitHub)
         if: env.ON_GITEA != 'true'

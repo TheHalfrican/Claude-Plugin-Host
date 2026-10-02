@@ -7,37 +7,43 @@ FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 
-# The host's sources, compiled into a plain console program so they can be
-# exercised without Live: the effect build, hosting Apple's built-in AUs.
-juce_add_console_app(ClaudeHostTests PRODUCT_NAME "ClaudeHostTests")
+# The host's sources, compiled into plain console programs so they can be
+# exercised without Live, hosting Apple's built-in AUs. One program per host
+# type, because the effect/instrument choice is made at compile time.
+function(claude_host_tests target is_synth product_name test_prefix)
+    juce_add_console_app(${target} PRODUCT_NAME "${target}")
 
-target_sources(ClaudeHostTests PRIVATE
-    TestMain.cpp
+    target_sources(${target} PRIVATE TestMain.cpp ${ARGN} ${CLAUDE_HOST_SOURCES})
+    target_include_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/Source)
+
+    target_compile_definitions(${target} PRIVATE
+        ${CLAUDE_HOST_DEFINITIONS}
+        CLAUDE_HOST_IS_SYNTH=${is_synth}
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JucePlugin_Name="${product_name}"
+        JucePlugin_VersionString="0.0.0-test")
+
+    target_link_libraries(${target}
+        PRIVATE
+            juce::juce_audio_utils
+            juce::juce_audio_processors
+            Catch2::Catch2
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
+    catch_discover_tests(${target} DISCOVERY_MODE PRE_TEST TEST_PREFIX "${test_prefix}")
+endfunction()
+
+claude_host_tests(ClaudeHostTests 0 "Claude Host FX" ""
     ControlServerTests.cpp
     InstanceRegistryTests.cpp
     HostProcessorTests.cpp
-    FabFilterTests.cpp
-    ${CLAUDE_HOST_SOURCES})
+    FabFilterTests.cpp)
 
-target_include_directories(ClaudeHostTests PRIVATE ${CMAKE_SOURCE_DIR}/Source)
-
-target_compile_definitions(ClaudeHostTests PRIVATE
-    ${CLAUDE_HOST_DEFINITIONS}
-    CLAUDE_HOST_IS_SYNTH=0
-    JUCE_MODAL_LOOPS_PERMITTED=1
-    JucePlugin_Name="Claude Host FX"
-    JucePlugin_VersionString="0.0.0-test")
-
-target_link_libraries(ClaudeHostTests
-    PRIVATE
-        juce::juce_audio_utils
-        juce::juce_audio_processors
-        Catch2::Catch2
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_warning_flags)
-
-catch_discover_tests(ClaudeHostTests DISCOVERY_MODE PRE_TEST)
+claude_host_tests(ClaudeHostInstTests 1 "Claude Host Instrument" "instrument: "
+    InstrumentHostTests.cpp
+    SerumTests.cpp)
 
 # Any Python with pytest. CI points this at a venv, because Homebrew's
 # Python refuses pip installs (PEP 668).

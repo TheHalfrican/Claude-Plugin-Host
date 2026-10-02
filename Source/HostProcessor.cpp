@@ -152,6 +152,24 @@ namespace
         return 0.5f * (a + b);
     }
 
+    // Whether this host should offer a plugin. AU identifiers carry the
+    // component type ("AudioUnit:Synths/...", "AudioUnit:Effects/..."), so
+    // AUs can be sorted without loading them. VST3 paths don't say, so
+    // they're always offered (AU is preferred anyway).
+    bool suitsThisHost (const juce::String& format, const juce::String& identifier)
+    {
+        if (format != "AudioUnit")
+            return true;
+
+        const auto isInstrument = identifier.contains (":Synths/");
+
+       #if CLAUDE_HOST_IS_SYNTH
+        return isInstrument;
+       #else
+        return ! isInstrument && ! identifier.contains (":MidiEffects/");
+       #endif
+    }
+
     // AU first: most of the user's plugins are AUv2 and their sets use AU.
     int formatRank (const juce::String& format)
     {
@@ -260,15 +278,25 @@ void HostProcessor::prepareInner (juce::AudioPluginInstance& plugin)
     // Ask for the same main layout as ours; plugins that refuse keep their own.
     auto layout = plugin.getBusesLayout();
 
-    if (! layout.inputBuses.isEmpty())
-        layout.inputBuses.getReference (0) = getMainBusNumInputChannels() > 0
-                                                 ? getChannelLayoutOfBus (true, 0)
-                                                 : juce::AudioChannelSet::stereo();
-
     if (! layout.outputBuses.isEmpty())
         layout.outputBuses.getReference (0) = getChannelLayoutOfBus (false, 0);
 
+   #if CLAUDE_HOST_IS_SYNTH
+    // An instrument host has no audio input, so switch off the synth's
+    // inputs (sidechain etc.) where it allows that.
+    auto noInputs = layout;
+
+    for (auto& bus : noInputs.inputBuses)
+        bus = juce::AudioChannelSet::disabled();
+
+    if (! plugin.setBusesLayout (noInputs))
+        plugin.setBusesLayout (layout);
+   #else
+    if (! layout.inputBuses.isEmpty())
+        layout.inputBuses.getReference (0) = getChannelLayoutOfBus (true, 0);
+
     plugin.setBusesLayout (layout);
+   #endif
     plugin.setRateAndBufferSizeDetails (currentSampleRate, currentBlockSize);
     plugin.setNonRealtime (isNonRealtime());
     plugin.prepareToPlay (currentSampleRate, currentBlockSize);
@@ -293,6 +321,13 @@ void HostProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
 
     inner->setPlayHead (getPlayHead());
+
+   #if CLAUDE_HOST_IS_SYNTH
+    // Live's buffer for an instrument isn't guaranteed to be silent; the
+    // synth renders into it, so anything left over must not reach the
+    // synth's inputs or get mixed into its output.
+    buffer.clear();
+   #endif
 
     const auto numSamples = buffer.getNumSamples();
     const auto innerChannels = juce::jmax (inner->getTotalNumInputChannels(), inner->getTotalNumOutputChannels());
@@ -355,6 +390,9 @@ const juce::Array<HostProcessor::AvailablePlugin>& HostProcessor::getAvailablePl
         {
             // Don't offer ourselves: a host inside a host inside a host...
             if (id.contains ("Clde") || id.containsIgnoreCase ("Claude Host"))
+                continue;
+
+            if (! suitsThisHost (format->getName(), id))
                 continue;
 
             availablePlugins.add ({ format->getNameOfPluginFromIdentifier (id), format->getName(), id });
@@ -662,6 +700,32 @@ juce::var HostProcessor::runCommand (const juce::var& request)
     if (command == "set")
         return applySetRequest (request);
 
+    if (command == "set_many")
+    {
+        // Several changes in one round trip, applied in order (order matters:
+        // Pro-Q 2 ignores a band's settings until its State is on). Each
+        // change reports its own result; one failure doesn't stop the rest.
+        const auto* changes = request.getProperty ("changes", {}).getArray();
+
+        if (changes == nullptr || changes->isEmpty())
+            return fail ("give \"changes\": a list of {\"param\": ..., \"value\" or \"text\": ...}");
+
+        juce::Array<juce::var> results;
+        bool allOk = true;
+
+        for (const auto& change : *changes)
+        {
+            const auto result = change.isObject() ? applySetRequest (change) : fail ("each change must be an object");
+            allOk = allOk && (bool) result.getProperty ("ok", false);
+            results.add (result);
+        }
+
+        auto* reply = object();
+        reply->setProperty ("results", results);
+        reply->setProperty ("allOk", allOk);
+        return ok (reply);
+    }
+
     if (command == "programs")
         return listPrograms();
 
@@ -676,7 +740,7 @@ juce::var HostProcessor::runCommand (const juce::var& request)
         return listPrograms();
     }
 
-    return fail ("unknown cmd \"" + command + "\" (try info, list_plugins, load, unload, params, get, set, programs, set_program)");
+    return fail ("unknown cmd \"" + command + "\" (try info, list_plugins, load, unload, params, get, set, set_many, programs, set_program)");
 }
 
 juce::var HostProcessor::describe() const

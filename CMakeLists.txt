@@ -64,7 +64,8 @@ function(claude_host_plugin target product_name plugin_code is_synth)
             juce::juce_recommended_warning_flags)
 endfunction()
 
-claude_host_plugin(ClaudeHostFX "Claude Host FX" Chfx FALSE)
+claude_host_plugin(ClaudeHostFX   "Claude Host FX"         Chfx FALSE)
+claude_host_plugin(ClaudeHostInst "Claude Host Instrument" Chin TRUE)
 
 option(CLAUDE_HOST_BUILD_TESTS "Build the test suite" ON)
 

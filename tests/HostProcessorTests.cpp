@@ -121,7 +121,19 @@ TEST_CASE ("list_plugins finds Apple's AUs and never offers the host itself", "[
         CHECK (p.getProperty ("name", {}).toString().containsIgnoreCase ("lowpass"));
 }
 
-TEST_CASE ("load matches names exactly, then by unique substring", "[host][load]")
+TEST_CASE ("The effect host offers effects - not instruments", "[host][load]")
+{
+    auto host = makeHost();
+    const auto reply = run (*host, R"({"cmd":"list_plugins"})");
+
+    for (const auto& p : *reply.getProperty ("plugins", {}).getArray())
+        if (p.getProperty ("format", {}).toString() == "AudioUnit")
+            CHECK (p.getProperty ("name", {}).toString() != "DLSMusicDevice");
+
+    CHECK_FALSE (isOk (run (*host, R"({"cmd":"load","name":"DLSMusicDevice"})")));
+}
+
+TEST_CASE ("load matches names exactly - then by unique substring", "[host][load]")
 {
     auto host = makeHost();
 
@@ -167,7 +179,7 @@ TEST_CASE ("load matches names exactly, then by unique substring", "[host][load]
     }
 }
 
-TEST_CASE ("Loading a second plugin replaces the first; unload empties the host", "[host][load]")
+TEST_CASE ("Loading a second plugin replaces the first - unload empties the host", "[host][load]")
 {
     auto host = makeHostWith ("AULowpass");
     REQUIRE (run (*host, R"({"cmd":"load","name":"AUDelay"})").getProperty ("ok", false));
@@ -180,7 +192,7 @@ TEST_CASE ("Loading a second plugin replaces the first; unload empties the host"
 }
 
 //==============================================================================
-TEST_CASE ("params lists every parameter with value, text and type", "[host][params]")
+TEST_CASE ("params lists every parameter with value - text and type", "[host][params]")
 {
     auto host = makeHostWith ("AULowpass");
 
@@ -202,7 +214,7 @@ TEST_CASE ("params lists every parameter with value, text and type", "[host][par
     CHECK (cutoff.getProperty ("text", {}).toString().isNotEmpty());
 }
 
-TEST_CASE ("get finds a parameter by exact name, unique substring, or index", "[host][params]")
+TEST_CASE ("get finds a parameter by exact name - unique substring - or index", "[host][params]")
 {
     auto host = makeHostWith ("AULowpass");
 
@@ -297,6 +309,41 @@ TEST_CASE ("Text values outside the range or not understood are refused", "[host
 
     // A refused request leaves the parameter alone.
     CHECK ((double) param (*host, "Cutoff Frequency").getProperty ("value", -2.0) == Catch::Approx ((double) before));
+}
+
+TEST_CASE ("set_many applies changes in order and reports each one", "[host][params]")
+{
+    auto host = makeHostWith ("AULowpass");
+
+    const auto reply = run (*host, R"({"cmd":"set_many","changes":[
+        {"param":"Cutoff Frequency","text":"800"},
+        {"param":"Resonance","value":0.4},
+        {"param":"No Such Param","value":0.5},
+        {"param":"Cutoff Frequency","text":"1200"}]})");
+    REQUIRE (isOk (reply));
+    CHECK_FALSE ((bool) reply.getProperty ("allOk", true));
+
+    const auto& results = *reply.getProperty ("results", {}).getArray();
+    REQUIRE (results.size() == 4);
+    CHECK (isOk (results[0]));
+    CHECK (isOk (results[1]));
+    CHECK_FALSE (isOk (results[2]));                 // reported, not fatal
+    CHECK (isOk (results[3]));
+
+    // Later changes win: applied in order.
+    CHECK (param (*host, "Cutoff Frequency").getProperty ("text", {}).toString().getFloatValue() == Catch::Approx (1200.0f).margin (12.0f));
+    CHECK ((double) param (*host, "Resonance").getProperty ("value", -1.0) == Catch::Approx (0.4).margin (0.01));
+}
+
+TEST_CASE ("set_many needs a list of changes", "[host][params]")
+{
+    auto host = makeHostWith ("AULowpass");
+    CHECK_FALSE (isOk (run (*host, R"({"cmd":"set_many"})")));
+    CHECK_FALSE (isOk (run (*host, R"({"cmd":"set_many","changes":[]})")));
+
+    const auto notObject = run (*host, R"({"cmd":"set_many","changes":[42]})");
+    REQUIRE (isOk (notObject));
+    CHECK_FALSE ((bool) notObject.getProperty ("allOk", true));
 }
 
 TEST_CASE ("set rejects out-of-range or missing values", "[host][params]")
@@ -423,7 +470,7 @@ TEST_CASE ("Garbage state is ignored", "[host][state]")
 }
 
 //==============================================================================
-TEST_CASE ("Every instance gets a tag in range, unique among running instances", "[host][tag]")
+TEST_CASE ("Every instance gets a tag in range - unique among running instances", "[host][tag]")
 {
     auto a = makeHost();
     auto b = makeHost();
@@ -433,7 +480,7 @@ TEST_CASE ("Every instance gets a tag in range, unique among running instances",
     CHECK (a->getTag() != b->getTag());
 }
 
-TEST_CASE ("A duplicated instance re-rolls its tag; a reopened one keeps it", "[host][tag]")
+TEST_CASE ("A duplicated instance re-rolls its tag - a reopened one keeps it", "[host][tag]")
 {
     auto original = makeHostWith ("AULowpass");
     const auto tag = original->getTag();
@@ -451,7 +498,7 @@ TEST_CASE ("A duplicated instance re-rolls its tag; a reopened one keeps it", "[
     CHECK (reopened->getTag() == tag);
 }
 
-TEST_CASE ("The registry entry tracks port, tag and loaded plugin", "[host][tag]")
+TEST_CASE ("The registry entry tracks port - tag and loaded plugin", "[host][tag]")
 {
     auto host = makeHost();
 
