@@ -79,13 +79,20 @@ A Live Remote Script (Python, runs inside Live) serving line-delimited JSON on `
 
 ## Phases
 
-1. Effect host (`ClaudeHostFX`). ← current. Verified in Live 12.2.7: loads FF Pro-Q 2 (AU), all 190 params listed, set by real units ("250 Hz", "-4 dB") with exact read-back; Live reads the Instance Tag. Save, quit and reopen restores the inner plugin, its settings and the tag (also across a rebuild). Still to test: FF Saturn.
+All three done and verified in Live 12.2.7 (2026-10-02). Next work is in `LATER_LIST.md`, led by full automation control.
+
+1. **Effect host** (`ClaudeHostFX`, AU aufx `Chfx`). Loads FF Pro-Q 2 (AU) with all 190 params, set by real units with exact read-back; Live reads the Instance Tag. Save, quit and reopen restores the inner plugin, its settings and the tag, also across rebuilds. Saturn and Pro-C 2 tested too.
+2. **Instrument host** (`ClaudeHostInst`, AU aumu `Chin`). MIDI goes through to the inner synth; its inputs are disabled and the buffer cleared before it renders. Tested headless with Apple's DLSMusicDevice, and with the user's Serum 1 (288 params) headless and in Live.
+3. **Routing.**
+   - Effect host sidechain input (bus 1, off by default), passed to the inner plugin's sidechain: Pro-C 2 ducked to a kick-only track in Live.
+   - Instrument host has 8 stereo outputs (main + 7 aux, off by default), inner output N → ours N. Live lists "Aux 1–7-Claude Host Instrument" as routing sources; a real multi-out signal test is still on the later list.
+   - Inner buses are negotiated one at a time; processBlock routes bus by bus.
+   - Tested with fake plugins (`tests/FakePlugin.h`) and real Pro-C 2.
+   - A copy of a real 12-track project with hosts on regular, group and MIDI tracks survived save/quit/reopen intact.
 
 Live caches a loaded plugin's code per process: after rebuilding, quit and reopen Live to pick up the new build.
-2. Instrument host (`ClaudeHostInst`, AU type aumu `Chin`). Done. MIDI goes through to the inner synth; the synth's inputs are disabled and the buffer cleared before it renders. Tested headless with Apple's DLSMusicDevice (`ClaudeHostInstTests`) and the user's Serum 1 (hidden `[serum]` tests: 288 params, plays). Still to test: in Live. Serum 2 is unlicensed for now.
-3. ← current. Done: effect host sidechain input (bus 1, off by default) passed to the inner plugin's sidechain; instrument host has 8 stereo outputs (main + 7 aux, off by default), inner output N → ours N; inner buses negotiated one at a time (ours, then stereo, mono, off) so one refusal doesn't lose the rest; processBlock routes bus by bus through scratch (mono↔stereo bridged, missing buses silent); latency/tail follow the inner plugin. Tested with fake plugins (`tests/FakePlugin.h`, `RoutingTests.cpp`, `InstrumentRoutingTests.cpp`) and real Pro-C 2 sidechain ducking (`[fabfilter]`: needs Side Chain Expert Mode 1 + Side Chain Input 1). Still to do: sidechain and multi-out in Live itself; state-save test on a copy of a real project.
 
-Test only in a blank Live set, never the user's projects.
+Test in a blank set or a **copy** of a project (same folder, so samples resolve), never the user's originals. Live also writes backups of a copy into the project's `Backup/` folder; trash those with the copy when done (with the user's OK).
 
 ## Repos
 
