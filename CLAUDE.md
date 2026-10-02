@@ -28,7 +28,7 @@ PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh build        # strictest plugin
 - `tests/test_host_ctl.py` — the Python client against a fake host.
 - `tests/validate_plugin.sh` — auval and pluginval (downloads pluginval into `build/tools`).
 
-GitHub Actions (`.github/workflows/tests.yml`) runs the fast suite and validation on every push to the GitHub mirror (macOS 15, Apple Silicon). The `[fabfilter]` tests need the user's FabFilter plugins, so they only run locally.
+CI: `.github/workflows/tests.yml` runs on both forges with `runs-on: macos-latest`. On **GitHub** (via the push mirror) it builds everything on a clean VM, runs the fast suite, then auval and pluginval. On **Gitea** it runs on the user's own Mac runner (host mode, `~/gitea-runner`), so it only builds and runs the tests: building the plugins there would install them over the copy Live uses. The `[fabfilter]` tests need the user's FabFilter plugins, so they only run by hand.
 
 The test program sets `CLAUDE_HOST_REGISTRY_DIR` to a temp folder so it never touches instances running in Live. Run the suite before every commit.
 
