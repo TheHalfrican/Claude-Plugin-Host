@@ -7,6 +7,8 @@ name: Tests
 #     jobs run directly on the user's Mac. There, only build and run the
 #     tests. Building the plugins would install them into
 #     ~/Library/Audio/Plug-Ins and replace the copy Live uses.
+#     The Mac runner's python3 is Homebrew's, which refuses pip installs,
+#     so pytest goes into a venv on both.
 
 on:
   push:
@@ -25,19 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python (GitHub)
-        if: env.ON_GITEA != 'true'
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
+      # A venv for pytest: Homebrew's Python (the default on the Mac runner)
+      # refuses pip installs, and a venv keeps CI out of the user's Pythons.
       - name: Install tools
         run: |
-          python3 -m pytest --version >/dev/null 2>&1 || python3 -m pip install --quiet pytest
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --quiet pytest
           command -v ninja >/dev/null || brew install ninja
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLAUDE_HOST_PYTHON="$PWD/.venv/bin/python"
 
       - name: Build tests
         run: cmake --build build --target ClaudeHostTests

@@ -39,8 +39,12 @@ target_link_libraries(ClaudeHostTests
 
 catch_discover_tests(ClaudeHostTests DISCOVERY_MODE PRE_TEST)
 
+# Any Python with pytest. CI points this at a venv, because Homebrew's
+# Python refuses pip installs (PEP 668).
+set(CLAUDE_HOST_PYTHON "python3" CACHE STRING "Python interpreter with pytest, for the client tests")
+
 add_test(NAME python_client
-         COMMAND python3 -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_host_ctl.py)
+         COMMAND ${CLAUDE_HOST_PYTHON} -m pytest -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/test_host_ctl.py)
 
 # Needs the plugin built and installed (cmake --build build --target ClaudeHostFX_All).
 # Run with: ctest --test-dir build -L validation
