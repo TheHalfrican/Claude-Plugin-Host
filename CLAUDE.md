@@ -28,6 +28,8 @@ PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh build        # strictest plugin
 - `tests/test_host_ctl.py` — the Python client against a fake host.
 - `tests/validate_plugin.sh` — auval and pluginval (downloads pluginval into `build/tools`).
 
+GitHub Actions (`.github/workflows/tests.yml`) runs the fast suite and validation on every push to the GitHub mirror (macOS 15, Apple Silicon). The `[fabfilter]` tests need the user's FabFilter plugins, so they only run locally.
+
 The test program sets `CLAUDE_HOST_REGISTRY_DIR` to a temp folder so it never touches instances running in Live. Run the suite before every commit.
 
 ## Layout
@@ -49,7 +51,9 @@ Text values: the host checks what the plugin displays for the converted value an
 
 ## Phases
 
-1. Effect host (`ClaudeHostFX`). ← current. Verified in Live 12.2.7: loads FF Pro-Q 2 (AU), all 190 params listed, set by real units ("250 Hz", "-4 dB") with exact read-back; Live reads the Instance Tag. Still to test: saving and reopening a set, FF Saturn.
+1. Effect host (`ClaudeHostFX`). ← current. Verified in Live 12.2.7: loads FF Pro-Q 2 (AU), all 190 params listed, set by real units ("250 Hz", "-4 dB") with exact read-back; Live reads the Instance Tag. Save, quit and reopen restores the inner plugin, its settings and the tag (also across a rebuild). Still to test: FF Saturn.
+
+Live caches a loaded plugin's code per process: after rebuilding, quit and reopen Live to pick up the new build.
 2. Instrument host (`claude_host_plugin(... TRUE)` in CMakeLists), MIDI through, tested with Serum 1 (Serum 2 is unlicensed for now).
 3. Sidechain, multi-out, latency edge cases, state-save tests on real projects; wire into the skill.
 
