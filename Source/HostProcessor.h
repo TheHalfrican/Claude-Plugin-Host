@@ -49,6 +49,10 @@ public:
     juce::String loadPlugin (const juce::PluginDescription& description);
     void unloadPlugin();
 
+    // Runs one control command (the same JSON the socket accepts) and returns
+    // the reply. The socket path calls this; tests call it directly.
+    juce::var runCommand (const juce::var& request);
+
     juce::AudioPluginInstance* getInnerPlugin() const noexcept { return inner.get(); }
     int getTag() const noexcept;
     int getPort() const noexcept { return server.getPort(); }
@@ -71,7 +75,6 @@ private:
     static BusesProperties defaultBuses();
 
     juce::var handleRequest (const juce::var& request);  // server thread
-    juce::var dispatch (const juce::var& request);       // message thread
 
     juce::var describe() const;
     juce::var listPlugins (const juce::String& query);

@@ -1,6 +1,7 @@
 #include "HostProcessor.h"
 #include "HostEditor.h"
 
+#include <optional>
 #include <unistd.h>
 
 namespace
@@ -24,6 +25,132 @@ namespace
     }
 
     juce::DynamicObject* object() { return new juce::DynamicObject(); }
+
+    struct Quantity
+    {
+        double value;
+        bool hasUnit;
+    };
+
+    // Reads "2.5 kHz", "-4 dB", "120 ms", "1.2 s", "35 %" into a number in a
+    // base unit (Hz, ms, dB, %), so a request and a plugin's display text can
+    // be compared even when they use different prefixes.
+    std::optional<Quantity> parseQuantity (const juce::String& text)
+    {
+        const auto t = text.trim();
+        // The unit starts at the first letter or %; 'e' is left out so
+        // exponents like "1e3" stay part of the number.
+        const auto numberEnd = t.indexOfAnyOf ("abcdfghijklmnopqrstuvwxyzABCDFGHIJKLMNOPQRSTUVWXYZ%");
+        const auto numberPart = (numberEnd < 0 ? t : t.substring (0, numberEnd)).trim();
+
+        if (! numberPart.containsAnyOf ("0123456789"))
+            return std::nullopt;
+
+        auto value = numberPart.getDoubleValue();
+        const auto unit = (numberEnd < 0 ? juce::String() : t.substring (numberEnd)).trim().toLowerCase();
+
+        if (unit.startsWith ("k"))
+            value *= 1000.0;                       // kHz -> Hz
+        else if (juce::StringArray { "s", "sec", "secs", "second", "seconds" }.contains (unit))
+            value *= 1000.0;                       // s -> ms
+
+        return Quantity { value, unit.isNotEmpty() };
+    }
+
+    bool quantitiesMatch (double a, double b)
+    {
+        return std::abs (a - b) <= juce::jmax (0.01, std::abs (b) * 0.01);
+    }
+
+    // Finds the normalized value whose display text reads `text`.
+    //
+    // JUCE's getValueForText() only works when the plugin itself converts
+    // text to values (FabFilter does; Apple's AUs don't, and JUCE then
+    // returns the raw number, which clamps to the top of the range). So the
+    // result is checked against what the plugin displays, and if it doesn't
+    // match, the range is searched using the plugin's own display text.
+    std::optional<float> valueForText (const juce::AudioProcessorParameter& p, const juce::String& text, juce::String& error)
+    {
+        const auto direct = p.getValueForText (text);
+        const auto wanted = parseQuantity (text);
+
+        if (! wanted.has_value())
+        {
+            // A word ("On", "Bell"). Only accept it if the plugin really
+            // displays that word; otherwise many plugins quietly turn unknown
+            // text into 0.
+            if (direct >= 0.0f && direct <= 1.0f && p.getText (direct, 64).trim().equalsIgnoreCase (text.trim()))
+                return direct;
+
+            const auto steps = p.getNumSteps();
+
+            if (p.isDiscrete() && steps > 1 && steps <= 4096)
+                for (int i = 0; i < steps; ++i)
+                {
+                    const auto v = (float) i / (float) (steps - 1);
+
+                    if (p.getText (v, 64).trim().equalsIgnoreCase (text.trim()))
+                        return v;
+                }
+
+            error = "the plugin doesn't show \"" + text + "\" for this parameter";
+            return std::nullopt;
+        }
+
+        // Some plugins put the unit in the text ("250.00 Hz"); Apple's AUs show
+        // a bare number and keep the unit in the label ("Hz", "Secs"). If the
+        // request has no unit, compare bare numbers.
+        const auto label = p.getLabel();
+        auto displayed = [&p, &label, &wanted] (float v) -> std::optional<double>
+        {
+            const auto shownText = p.getText (v, 64);
+            const auto shown = parseQuantity (wanted->hasUnit ? shownText + " " + label : shownText);
+            return shown ? std::optional<double> (shown->value) : std::nullopt;
+        };
+
+        if (direct >= 0.0f && direct <= 1.0f)
+            if (auto shown = displayed (direct); shown && quantitiesMatch (*shown, wanted->value))
+                return direct;
+
+        const auto low = displayed (0.0f), high = displayed (1.0f);
+
+        if (! low || ! high)
+        {
+            error = "can't read this parameter's display as a number; use a 0..1 \"value\"";
+            return std::nullopt;
+        }
+
+        const auto rising = *high >= *low;
+        const auto lo = juce::jmin (*low, *high), hi = juce::jmax (*low, *high);
+
+        const auto target = wanted->value;
+
+        if (target < lo - std::abs (lo) * 0.001 || target > hi + std::abs (hi) * 0.001)
+        {
+            error = "\"" + text + "\" is outside this parameter's range ("
+                  + p.getText (0.0f, 64) + " to " + p.getText (1.0f, 64) + ")";
+            return std::nullopt;
+        }
+
+        // Bisection, assuming the display is monotonic in the value.
+        float a = 0.0f, b = 1.0f;
+
+        for (int i = 0; i < 40; ++i)
+        {
+            const auto mid = 0.5f * (a + b);
+            const auto shown = displayed (mid);
+
+            if (! shown)
+                break;
+
+            if ((*shown < target) == rising)
+                a = mid;
+            else
+                b = mid;
+        }
+
+        return 0.5f * (a + b);
+    }
 
     // AU first: most of the user's plugins are AUv2 and their sets use AU.
     int formatRank (const juce::String& format)
@@ -467,7 +594,7 @@ juce::var HostProcessor::handleRequest (const juce::var& request)
     juce::MessageManager::callAsync ([weakThis = juce::WeakReference<HostProcessor> (this), request, result, done]
     {
         if (auto* self = weakThis.get())
-            *result = self->dispatch (request);
+            *result = self->runCommand (request);
         else
             *result = fail ("plugin instance is closing");
 
@@ -486,8 +613,10 @@ juce::var HostProcessor::handleRequest (const juce::var& request)
     return *result;
 }
 
-juce::var HostProcessor::dispatch (const juce::var& request)
+juce::var HostProcessor::runCommand (const juce::var& request)
 {
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+
     const auto command = request.getProperty ("cmd", {}).toString();
 
     if (command == "info")
@@ -721,7 +850,13 @@ juce::var HostProcessor::applySetRequest (const juce::var& request)
     if (! text.isVoid())
     {
         // Real units, as the plugin displays them ("2.5 kHz", "-3 dB", "On").
-        target = p->getValueForText (text.toString());
+        juce::String textError;
+        const auto converted = valueForText (*p, text.toString(), textError);
+
+        if (! converted.has_value())
+            return fail (textError);
+
+        target = *converted;
     }
     else if (! value.isVoid())
     {

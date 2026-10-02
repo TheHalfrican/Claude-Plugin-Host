@@ -1,5 +1,7 @@
 #include "ControlServer.h"
 
+#include <sys/socket.h>
+
 namespace
 {
     // A request line larger than this is treated as a broken client.
@@ -54,6 +56,12 @@ void ControlServer::run()
         if (client == nullptr)
             continue;
 
+        // Writing to a socket the client already closed raises SIGPIPE, and
+        // its default action kills the whole process: inside Live, that's
+        // Live. JUCE doesn't guard against it on macOS, so opt out per socket.
+        const int noSigPipe = 1;
+        ::setsockopt (client->getRawSocketHandle(), SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof (noSigPipe));
+
         serveClient (*client);
     }
 }
@@ -105,7 +113,8 @@ void ControlServer::serveClient (juce::StreamingSocket& client)
             juce::var request;
             const auto parsed = juce::JSON::parse (line, request);
 
-            const auto reply = parsed.wasOk() && request.isObject()
+            // JUCE reports arrays as objects too, so check for a real object.
+            const auto reply = parsed.wasOk() && request.getDynamicObject() != nullptr && ! request.isArray()
                                    ? handler (request)
                                    : errorReply ("request must be one JSON object per line");
 

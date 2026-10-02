@@ -13,6 +13,12 @@ namespace
 
 juce::File InstanceRegistry::getDirectory()
 {
+    // Tests point this elsewhere so they never mix with instances inside Live.
+    const auto overridden = juce::SystemStats::getEnvironmentVariable ("CLAUDE_HOST_REGISTRY_DIR", {});
+
+    if (overridden.isNotEmpty())
+        return juce::File (overridden);
+
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
         .getChildFile ("Application Support/ClaudePluginHost/instances");
 }
