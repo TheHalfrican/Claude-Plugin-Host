@@ -55,6 +55,11 @@ set(CLAUDE_HOST_PYTHON "python3" CACHE STRING "Python interpreter with pytest, f
 add_test(NAME python_client
          COMMAND ${CLAUDE_HOST_PYTHON} -m pytest -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/test_host_ctl.py)
 
+# The Claude Bridge Remote Script: commands against fake Live objects, its
+# socket server, and tools/bridge_ctl.py.
+add_test(NAME python_bridge
+         COMMAND ${CLAUDE_HOST_PYTHON} -m pytest -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/bridge)
+
 # Needs the plugin built and installed (cmake --build build --target ClaudeHostFX_All).
 # Run with: ctest --test-dir build -L validation
 add_test(NAME plugin_validation

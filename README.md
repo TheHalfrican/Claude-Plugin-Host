@@ -1,13 +1,17 @@
 # Claude Plugin Host
 
-Two small AU/VST3 plugins for Ableton Live — **Claude Host FX** and **Claude Host Instrument** — that each host one other plugin inside them and expose **every one of its parameters** over a local socket, so an AI assistant (Claude, via a small client script) can read and set any knob by name and in real units:
+Tools that let an AI assistant (Claude) work hands-on in Ableton Live:
+
+- **Claude Host FX** and **Claude Host Instrument**: two small AU/VST3 plugins that each host one other plugin inside them and expose **every one of its parameters** over a local socket, so any knob can be read and set by name and in real units.
+- **Claude Bridge**: a Live Remote Script for what Live's own scripting API allows but common tools don't expose: mixer, routing, feeding sidechains, duplicating/deleting tracks and devices, and clip automation.
+
 
 ```
 $ host_ctl.py --track Keys set-many "Band 2 State=1" "Band 2 Shape=0" "Band 2 Frequency=400 Hz" "Band 2 Gain=-2 dB"
 $ host_ctl.py --track "Bass (Host)" set "Fil Cutoff" --text "600 Hz"
 ```
 
-## Why
+## Why the host plugins
 
 Live's own API (and anything built on it, such as Max for Live devices or AbletonMCP) can only see a third-party plugin's parameters after the user clicks **Configure** and touches each control by hand. For big plugins — Serum, FabFilter Pro-Q 2, Kontakt — that means a script sees nothing but "Device On".
 
@@ -76,6 +80,28 @@ Line-delimited JSON over TCP on `127.0.0.1`, on a port the OS assigns. Each runn
 
 Connections stay open, so a client can send many requests on one connection; `tools/host_ctl.py` is a complete, small example.
 
+## Claude Bridge (Remote Script)
+
+```sh
+tools/install_bridge.sh      # copies bridge/ClaudeBridge into Live's User Library
+```
+
+In Live: **Settings → Link, Tempo & MIDI → Control Surface → ClaudeBridge** (Input/Output: None). It listens on `127.0.0.1:9879`, using the same line-delimited JSON protocol as the hosts:
+
+```sh
+tools/bridge_ctl.py tracks
+tools/bridge_ctl.py set-track "Melody" volume="+1.5 dB" "send A=-20 dB"
+tools/bridge_ctl.py set-routing "Kick (SC)" output "Sends Only"
+tools/bridge_ctl.py feed-sidechain "Kick (SC)" "Bass"        # route a key into a device's sidechain
+tools/bridge_ctl.py envelope "Melody" mixer "send B" --clip 0 "12=-inf dB" "16=-12 dB"
+tools/bridge_ctl.py name-hosts                                # "FF Pro-Q 2 (Claude Host)"
+tools/bridge_ctl.py --help                                    # everything else
+```
+
+Values are given as Live displays them ("-6 dB", "25L", "C", "Off") and land exactly on that reading. The bridge also renames Claude Host devices after the plugin they hold, every couple of seconds. After changing bridge code, `tools/install_bridge.sh && tools/bridge_ctl.py reload` loads it without restarting Live (except for changes to `bridge.py` itself).
+
+What Live's API doesn't allow, and so neither does the bridge: setting a plugin device's own sidechain dropdown (`feed-sidechain` routes the key track's output instead), writing the Arrangement's track automation lanes (clip envelopes work in both Session and Arrangement), and loading devices onto the master or return tracks.
+
 ## Tests
 
 ```sh
@@ -87,6 +113,7 @@ ctest --test-dir build -L validation --output-on-failure    # auval + pluginval 
 - **Unit tests**: the control protocol (split/batched lines, split UTF-8, bad input, shutdown), the instance registry, and text-to-value conversion against fake parameters that behave like real plugins'.
 - **Integration tests**, no DAW needed: the real host code hosting Apple's built-in Audio Units (AULowpass, AUDelay, DLSMusicDevice) — every command, audio actually filtered, bit-exact passthrough, sample-accurate MIDI, state round-trip — plus fake plugins for sidechain, multi-out, mono/stereo and latency routing.
 - **Client tests** (pytest): `host_ctl.py` against a fake host.
+- **Bridge tests** (pytest): every bridge command against fake Live objects that behave like Live's API (including its quirks, such as continuous parameters refusing `value_items` and events at a clip's end being dropped), its socket server, and `bridge_ctl.py`.
 - **Validation**: Apple's `auval` and Tracktion's [pluginval](https://github.com/Tracktion/pluginval) (strictness 10 passes) on both formats of both plugins.
 - **Plugin-specific tests**, hidden by default because they need the plugins installed: `ClaudeHostTests "[fabfilter]"`, `ClaudeHostInstTests "[serum]"`. They measure, from the audio, what plugins' unlabelled codes mean (e.g. Pro-Q 2's band shapes and slopes) and check real sidechain ducking with Pro-C 2.
 
@@ -94,7 +121,8 @@ CI runs the fast suite and validation on GitHub Actions (macOS, Apple Silicon) o
 
 ## Status and limitations
 
-- Tested in Ableton Live 12.2 on macOS, Apple Silicon, with FabFilter Pro-Q 2 / Pro-C 2 / Saturn and Xfer Serum. Other plugins and hosts should work but haven't been tried.
+- Tested in Ableton Live 12.2 on macOS, Apple Silicon, with FabFilter Pro-Q 2 / Pro-C 2 / Saturn and Xfer Serum, including sidechain ducking in Live and save/reopen. Other plugins and hosts should work but haven't been tried. Multi-output instruments are tested with fake plugins but not yet with a real one in Live.
+- Claude Bridge is tested in Live 12.2.7: mixer, routing, mute/solo, feeding a sidechain, clip automation, renaming hosts.
 - Live's automation lanes see only the host's own parameter (Instance Tag), not the hosted plugin's.
 - Plugins whose UI only exposes settings as numbers (Pro-Q 2's band shapes, Saturn's styles) need those numbers mapped once; the hidden tests show how to measure them.
 - The hosted plugin's own preset browser still has to be used by hand when the plugin doesn't expose programs (Serum's AU doesn't).

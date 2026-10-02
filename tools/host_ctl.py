@@ -60,12 +60,10 @@ def instances():
 
 
 def track_name(info):
-    """The Live track name. Live reports it as "<device name>/<track name>"."""
+    """The Live track name. Live reports it as "<device name>/<track name>",
+    and the device may have been renamed ("FF Pro-Q 2 (Claude Host)/Keys")."""
     track = info.get("track", "")
-    product = info.get("product", "")
-    if product and track.startswith(product + "/"):
-        return track[len(product) + 1:]
-    return track
+    return track.split("/", 1)[1] if "/" in track else track
 
 
 def pick(args):
@@ -94,6 +92,18 @@ def send(port, request):
                 break
             buf += chunk
     return json.loads(buf)
+
+
+def rename_hosts_in_live():
+    """Best effort: ask the Claude Bridge (if it's running in Live) to rename
+    hosts after their plugin, e.g. "FF Pro-Q 2 (Claude Host)"."""
+    port = int(os.environ.get("CLAUDE_BRIDGE_PORT", "9879"))
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as s:
+            s.sendall(b'{"cmd": "name_hosts"}\n')
+            s.recv(1 << 16)
+    except OSError:
+        pass
 
 
 def main():
@@ -156,6 +166,8 @@ def main():
 
     target = pick(a)
     reply = send(target["port"], req)
+    if req["cmd"] in ("load", "unload") and reply.get("ok"):
+        rename_hosts_in_live()
     print(json.dumps(reply, indent=1))
     sys.exit(0 if reply.get("ok") and reply.get("allOk", True) else 1)
 

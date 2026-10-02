@@ -189,3 +189,8 @@ def test_set_many_partial_failure_gives_a_nonzero_exit(registry):
         assert host_ctl(registry, "set-many", "A=1", "B=2").returncode == 1
     finally:
         partial.close()
+
+
+def test_track_matching_survives_a_renamed_device(registry, fake):
+    register(registry, "a", fake.port, 5, track="FF Pro-Q 2 (Claude Host)/Keys")
+    assert host_ctl(registry, "--track", "Keys", "info").returncode == 0

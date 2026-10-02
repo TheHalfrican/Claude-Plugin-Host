@@ -30,6 +30,7 @@ PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh build        # strictest plugin
 - `tests/FabFilterTests.cpp`, `tests/SerumTests.cpp` — hidden (`[fabfilter]`, `[serum]`): need the user's plugins. They pin down unlabelled codes measured from the audio; `[measure]` ones only print.
 - `tests/RoutingTests.cpp`, `tests/InstrumentRoutingTests.cpp` — bus routing with fake plugins (`tests/FakePlugin.h`): sidechain on/off/mono, mono-only plugins, plugins refusing layouts, latency and tail, re-prepare after a layout change, multi-out mapping, MIDI timing. `HostProcessor::loadPluginInstance()` hosts an already-made plugin for this.
 - `tests/test_host_ctl.py` — the Python client against a fake host.
+- `tests/bridge/` — Claude Bridge: commands against fake Live objects, the socket server, `bridge_ctl.py` (ctest `python_bridge`).
 - `tests/validate_plugin.sh` — auval and pluginval (downloads pluginval into `build/tools`).
 
 CI: `.github/workflows/tests.yml` runs on both forges with `runs-on: macos-latest`. On **GitHub** (via the push mirror) it builds everything on a clean VM, runs the fast suite, then auval and pluginval. On **Gitea** it runs on the user's own Mac runner (host mode, `~/gitea-runner`), so it only builds and runs the tests: building the plugins there would install them over the copy Live uses. The `[fabfilter]` tests need the user's FabFilter plugins, so they only run by hand.
@@ -55,6 +56,22 @@ Each host only lists plugins it can host: AU identifiers carry the type (`AudioU
 Client: `tools/host_ctl.py`. The ableton-live-12 skill symlinks it as `~/.claude/skills/ableton-live-12/scripts/host_ctl.py`.
 
 Text values: see `Source/ParameterText.*`. Out-of-range or unknown text is refused and the parameter is left alone. VST3s are listed by file name (JUCE gives their path).
+
+## Claude Bridge (`bridge/ClaudeBridge`)
+
+A Live Remote Script (Python, runs inside Live) serving line-delimited JSON on `127.0.0.1:9879`. Install with `tools/install_bridge.sh` (copies into `~/Music/Ableton/User Library/Remote Scripts/ClaudeBridge`); the user enables it as a Control Surface. Client: `tools/bridge_ctl.py` (symlinked into the ableton-live-12 skill).
+
+- `commands.py`: all logic, written against Live's API (LOM) but importing nothing from Live. It's tested with fake Live objects (`tests/bridge/fake_live.py`). Bump `VERSION` when changing it.
+- `server.py`: the socket server, loopback only, SO_NOSIGPIPE, one thread per client.
+- `bridge.py`: the Live side (ControlSurface). It runs each request on Live's main thread via `schedule_message`, handles `reload` (re-imports `commands.py`, so no restart needed), and calls `Commands.background_tick()` every ~2 s, which renames Claude Host devices after their plugin. Changes to `bridge.py` itself need a Live restart.
+- Live API findings (12.2.7):
+  - Continuous parameters **raise** on `value_items`.
+  - Plugin devices have **no `input_routings`**, so their sidechain dropdown isn't scriptable. A track's output can instead go to `<track>` / `Sidechain-<device>` (`feed_sidechain`).
+  - `Device.name` is settable.
+  - Clip envelope events at or past the clip's end are dropped.
+  - Unnamed routing channels have an empty `display_name`.
+  - `bridge_ctl.py inspect` lists what Live exposes on a track or device.
+- Mirror every new Live quirk in the fakes, so the tests catch it.
 
 ## Phases
 
