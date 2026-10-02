@@ -137,10 +137,28 @@ void HostEditor::updateHeader()
 
 void HostEditor::loadFromSearchBox()
 {
-    const auto error = host.loadPlugin (searchBox.getText());
+    const auto name = searchBox.getText().trim();
+
+    // Return or Load with an empty box (easy to hit while clicking around
+    // the plugin window) shouldn't replace the header with an error.
+    if (name.isEmpty())
+        return;
+
+    const auto error = host.loadPlugin (name);
 
     if (error.isNotEmpty())
+    {
         status.setText (error, juce::dontSendNotification);
+
+        // Show the error briefly, then go back to the normal header.
+        juce::Timer::callAfterDelay (4000, [safeThis = juce::Component::SafePointer<HostEditor> (this)]
+        {
+            if (safeThis != nullptr)
+                safeThis->updateHeader();
+        });
+    }
     else
+    {
         searchBox.clear();
+    }
 }

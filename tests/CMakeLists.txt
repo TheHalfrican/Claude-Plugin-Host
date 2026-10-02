@@ -16,6 +16,7 @@ target_sources(ClaudeHostTests PRIVATE
     ControlServerTests.cpp
     InstanceRegistryTests.cpp
     HostProcessorTests.cpp
+    FabFilterTests.cpp
     ${CLAUDE_HOST_SOURCES})
 
 target_include_directories(ClaudeHostTests PRIVATE ${CMAKE_SOURCE_DIR}/Source)
