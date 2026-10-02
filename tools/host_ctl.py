@@ -94,18 +94,6 @@ def send(port, request):
     return json.loads(buf)
 
 
-def rename_hosts_in_live():
-    """Best effort: ask the Claude Bridge (if it's running in Live) to rename
-    hosts after their plugin, e.g. "FF Pro-Q 2 (Claude Host)"."""
-    port = int(os.environ.get("CLAUDE_BRIDGE_PORT", "9879"))
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=2) as s:
-            s.sendall(b'{"cmd": "name_hosts"}\n')
-            s.recv(1 << 16)
-    except OSError:
-        pass
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tag", type=int)
@@ -166,8 +154,6 @@ def main():
 
     target = pick(a)
     reply = send(target["port"], req)
-    if req["cmd"] in ("load", "unload") and reply.get("ok"):
-        rename_hosts_in_live()
     print(json.dumps(reply, indent=1))
     sys.exit(0 if reply.get("ok") and reply.get("allOk", True) else 1)
 

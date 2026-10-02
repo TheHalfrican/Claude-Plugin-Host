@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 
 
 class CommandError(Exception):
@@ -319,12 +319,9 @@ class Commands(object):
         raise CommandError('give "clip" (session slot) or "arrangement_clip" (index)')
 
     def background_tick(self):
-        """Called by the Live side every couple of seconds: keeps hosts named
-        after their plugin, including ones loaded by hand. Never raises."""
-        try:
-            self.cmd_name_hosts({})
-        except Exception:
-            pass
+        """Called by the Live side every couple of seconds for housekeeping.
+        Nothing needs it at the moment: renaming hosts isn't possible (Live
+        keeps a plugin device's own name), so it does nothing. Never raises."""
 
     # ---- reading ------------------------------------------------------------
 
@@ -406,8 +403,13 @@ class Commands(object):
     def cmd_inspect(self, request):
         """Developer aid: the API attributes Live exposes on a track or device
         (optionally only those containing `filter`), with simple values."""
-        t, _, _ = self._track(request.get("track"))
-        target = self._device(t, request.get("device")) if request.get("device") is not None else t
+        if _norm(str(request.get("track"))) == "song":
+            target = self._song()
+        else:
+            t, _, _ = self._track(request.get("track"))
+            target = self._device(t, request.get("device")) if request.get("device") is not None else t
+            if request.get("chain") is not None:
+                target = list(target.chains)[int(request["chain"])]
         f = _norm(request.get("filter", ""))
         attrs = {}
         for name in dir(target):
@@ -572,6 +574,26 @@ class Commands(object):
                 renamed.append({"track": t.name, "tag": tag, "plugin": plugin, "name": dv.name,
                                 "renamed": dv.name == wanted})
         return {"hosts": renamed}
+
+    def cmd_move_device(self, request):
+        """Moves a device: track/device -> to_track at position (default: the
+        end), or into a Rack on it: to_device + chain index. Live only accepts
+        tracks and chains as targets, not an empty Rack."""
+        t, _, _ = self._track(request.get("track"))
+        dv = self._device(t, request.get("device"))
+        dest_track, _, _ = self._track(request.get("to_track", request.get("track")))
+        target = dest_track
+        if request.get("to_device") is not None:
+            rack = self._device(dest_track, request.get("to_device"))
+            if not getattr(rack, "can_have_chains", False):
+                raise CommandError("%s isn't a Rack" % rack.name)
+            target = _pick(list(rack.chains), int(request.get("chain", 0)), "chain", name_of=lambda c: c.name)
+        position = int(request.get("position", len(list(target.devices))))
+        try:
+            self._song().move_device(dv, target, position)
+        except Exception as e:
+            raise CommandError("Live won't move %s there: %s" % (dv.name, e))
+        return {"moved": dv.name, "devices": [d.name for d in target.devices]}
 
     def cmd_duplicate_track(self, request):
         t, kind, index = self._track(request.get("track"))

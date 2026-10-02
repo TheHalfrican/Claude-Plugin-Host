@@ -70,7 +70,11 @@ A Live Remote Script (Python, runs inside Live) serving line-delimited JSON on `
   - `Device.name` is settable for Live's own devices only. On a **plugin** device Live accepts the assignment silently and keeps the plugin's name, so always read back. The fakes mimic this. Hosts show "<plugin> - Claude Host #<tag>" as their program name and in their editor header instead.
   - Clip envelope events at or past the clip's end are dropped.
   - Unnamed routing channels have an empty `display_name`.
-  - `bridge_ctl.py inspect` lists what Live exposes on a track or device.
+  - `bridge_ctl.py inspect` lists what Live exposes on a track, device, Rack chain (`--chain N`) or the song (`inspect song`).
+  - `Song.move_device(device, target, position)` moves devices along a chain, between tracks, or into a Rack's **chain**. An empty Rack (no chains) isn't a valid target, and the API can't add chains.
+  - `browser.load_item()` is asynchronous: the device appears a moment later.
+  - Loading an instrument (or an Instrument Rack) onto a track that has one **replaces** it.
+  - Tried and rejected (2026-10-02): wrapping each host in a renamable Rack so Live's device title could show "<plugin> - Claude Host #N". A Rack's title bar is even narrower (showed "S..."), and the user found the extra layer unnecessary. The name stays in the host's header and program name.
 - Mirror every new Live quirk in the fakes, so the tests catch it.
 
 ## Phases

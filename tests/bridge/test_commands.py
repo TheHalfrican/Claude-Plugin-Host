@@ -259,3 +259,18 @@ def test_background_tick_never_raises(song):
     commands = Commands(lambda: song, fake_live.App())
     song.tracks = None   # even with a broken set
     commands.background_tick()
+
+
+def test_move_device_within_and_between_tracks(run, song):
+    r = ok(run(cmd="move_device", track="Keys", device="Auto Filter", to_track="Keys", position=0))
+    assert r["devices"] == ["Auto Filter", "Electric"]
+    r = ok(run(cmd="move_device", track="Keys", device="Auto Filter", to_track="Drums"))
+    assert r["devices"] == ["Boom Bap Kit", "Auto Filter"]
+    assert [d.name for d in song.tracks[2].devices] == ["Electric"]
+    assert "isn't a Rack" in err(run(cmd="move_device", track="Drums", device="Auto Filter", to_track="Keys", to_device="Electric"))
+
+
+def test_inspect_the_song():
+    song = fake_live.make_set()
+    r = Commands(lambda: song, fake_live.App()).run({"cmd": "inspect", "track": "song", "filter": "track"})
+    assert r["ok"] and "duplicate_track" in r["attributes"]

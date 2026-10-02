@@ -25,7 +25,8 @@ Usage:
   bridge_ctl.py envelope TRACK DEVICE PARAM --clip N "0=-24 dB" "16=0 dB" [--shape step] [--res 0.25]
   bridge_ctl.py envelope-get TRACK DEVICE PARAM --clip N [--res 1]
   bridge_ctl.py envelope-clear TRACK DEVICE PARAM --clip N
-  bridge_ctl.py inspect TRACK [DEVICE [FILTER]]                 # developer aid: API attributes
+  bridge_ctl.py inspect TRACK|song [DEVICE [FILTER]] [--chain N]  # developer aid: API attributes
+  bridge_ctl.py move-device TRACK DEVICE TO_TRACK [POSITION]
   bridge_ctl.py raw '{"cmd": "tracks"}'
 Use --arrangement-clip N instead of --clip N for clips in the Arrangement.
 """
@@ -79,7 +80,7 @@ def parse_on_off(text):
 def build(a, rest):
     cmd = a.command
     need = {"track": 1, "set-track": 2, "routing": 1, "set-routing": 3, "devices": 1, "params": 2,
-            "set-param": 4, "sidechain": 3, "feed-sidechain": 2, "rename-device": 3, "duplicate-track": 1, "delete-track": 1, "delete-device": 2,
+            "set-param": 4, "sidechain": 3, "feed-sidechain": 2, "rename-device": 3, "move-device": 3, "duplicate-track": 1, "delete-track": 1, "delete-device": 2,
             "envelope": 4, "envelope-get": 3, "envelope-clear": 3}.get(cmd, 0)
     if len(rest) < need:
         sys.exit("%s needs %d argument(s); see --help" % (cmd, need))
@@ -163,6 +164,13 @@ def build(a, rest):
             req["device"] = ref(rest[1])
         if len(rest) > 2:
             req["filter"] = rest[2]
+        if a.chain is not None:
+            req["chain"] = a.chain
+        return req
+    if cmd == "move-device":
+        req = {"cmd": "move_device", "track": ref(rest[0]), "device": ref(rest[1]), "to_track": ref(rest[2])}
+        if len(rest) > 3:
+            req["position"] = int(rest[3])
         return req
     if cmd == "raw":
         return json.loads(rest[0])
@@ -177,6 +185,7 @@ def main():
     ap.add_argument("--arrangement-clip", type=int)
     ap.add_argument("--shape", choices=["linear", "step"])
     ap.add_argument("--res", type=float)
+    ap.add_argument("--chain", type=int, help="inspect: a rack's chain")
     ap.add_argument("--text", action="store_true", help="set-param: treat VALUE as display text even if it's a number")
     a = ap.parse_intermixed_args()  # options may sit between envelope points
     reply = send(build(a, a.args))

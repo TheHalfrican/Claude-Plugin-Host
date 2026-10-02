@@ -176,6 +176,15 @@ class Song(object):
     def delete_track(self, index):
         del self.tracks[index]
 
+    def move_device(self, device, target, position):
+        # Like Live: only tracks and chains are valid targets.
+        if not hasattr(target, "devices") or isinstance(target, Device):
+            raise RuntimeError("No valid target track or chain.")
+        for t in self.tracks + self.return_tracks + [self.master_track]:
+            if device in t.devices:
+                t.devices.remove(device)
+        target.devices.insert(min(position, len(target.devices)), device)
+
     def delete_return_track(self, index):
         del self.return_tracks[index]
 
