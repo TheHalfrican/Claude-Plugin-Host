@@ -16,7 +16,7 @@ HostEditor::HostEditor (HostProcessor& p)
 
     status.setFont (juce::FontOptions (13.0f));
     status.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
-    status.setJustificationType (juce::Justification::centredLeft);
+    status.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (status);
 
     searchBox.setTextToShowWhenEmpty ("Plugin name, e.g. FF Pro-Q 2", juce::Colours::grey);
@@ -59,15 +59,19 @@ void HostEditor::resized()
 {
     auto header = getLocalBounds().removeFromTop (headerHeight).reduced (8, 6);
 
-    title.setBounds (header.removeFromLeft (130));
     unloadButton.setBounds (header.removeFromRight (64));
     header.removeFromRight (6);
     loadButton.setBounds (header.removeFromRight (56));
     header.removeFromRight (6);
 
-    const auto searchWidth = innerEditor == nullptr ? 220 : juce::jmin (220, header.getWidth() / 2);
+    const auto searchWidth = juce::jmin (220, header.getWidth() / 3);
     searchBox.setBounds (header.removeFromRight (searchWidth));
-    status.setBounds (header);
+    header.removeFromRight (8);
+
+    // The name ("FF Pro-C 2 - Claude Host #1005") takes what's left; the
+    // port (or a load error) sits between it and the search box.
+    status.setBounds (header.removeFromRight (juce::jmin (header.getWidth() / 3, 260)));
+    title.setBounds (header);
 
     if (innerEditor != nullptr)
         innerEditor->setTopLeftPosition (0, headerHeight);
@@ -127,12 +131,8 @@ void HostEditor::componentMovedOrResized (juce::Component& c, bool, bool wasResi
 
 void HostEditor::updateHeader()
 {
-    title.setText ("Claude Host #" + juce::String (host.getTag()), juce::dontSendNotification);
-
-    auto* plugin = host.getInnerPlugin();
-    status.setText ((plugin != nullptr ? plugin->getName() : juce::String ("empty"))
-                        + "   ·   port " + juce::String (host.getPort()),
-                    juce::dontSendNotification);
+    title.setText (host.getDisplayName(), juce::dontSendNotification);
+    status.setText ("port " + juce::String (host.getPort()), juce::dontSendNotification);
 }
 
 void HostEditor::loadFromSearchBox()

@@ -299,6 +299,17 @@ void HostProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
 }
 
+juce::String HostProcessor::getDisplayName() const
+{
+    return (inner != nullptr ? inner->getName() : juce::String ("No plugin"))
+         + " - Claude Host #" + juce::String (getTag());
+}
+
+const juce::String HostProcessor::getProgramName (int)
+{
+    return getDisplayName();
+}
+
 double HostProcessor::getTailLengthSeconds() const
 {
     return inner != nullptr ? inner->getTailLengthSeconds() : 0.0;
@@ -476,7 +487,8 @@ void HostProcessor::installInner (std::unique_ptr<juce::AudioPluginInstance> new
     old.reset(); // destroyed here, on the message thread, outside the lock
 
     publishRegistry();
-    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+    // Program changed too: its name is the hosted plugin's (see getProgramName).
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true).withProgramChanged (true));
     listeners.call ([] (Listener& l) { l.innerPluginChanged(); });
 }
 

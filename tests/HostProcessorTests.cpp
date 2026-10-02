@@ -594,3 +594,19 @@ TEST_CASE ("The editor embeds the plugin's editor and survives plugin swaps", "[
     editor.reset(); // must not touch the (now gone) inner plugin
     SUCCEED();
 }
+
+
+TEST_CASE ("The host's program is named after the plugin it holds", "[host]")
+{
+    auto host = makeHost();
+    const auto tag = juce::String (host->getTag());
+    CHECK (host->getNumPrograms() == 1);
+    CHECK (host->getProgramName (0) == "No plugin - Claude Host #" + tag);
+
+    REQUIRE (isOk (run (*host, R"({"cmd":"load","name":"AULowpass"})")));
+    CHECK (host->getProgramName (host->getCurrentProgram()) == "AULowpass - Claude Host #" + tag);
+    CHECK (host->getDisplayName() == "AULowpass - Claude Host #" + tag);
+
+    REQUIRE (isOk (run (*host, R"({"cmd":"unload"})")));
+    CHECK (host->getProgramName (0) == "No plugin - Claude Host #" + tag);
+}

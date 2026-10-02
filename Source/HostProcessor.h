@@ -35,7 +35,9 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // Live can't be told to rename a plugin device, but it shows the
+    // plugin's current program, so ours is named after the hosted plugin.
+    const juce::String getProgramName (int) override;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -61,6 +63,10 @@ public:
 
     juce::AudioPluginInstance* getInnerPlugin() const noexcept { return inner.get(); }
     int getTag() const noexcept;
+
+    // "FF Pro-C 2 - Claude Host #1005": the hosted plugin first, as the user
+    // wants to see it. Used for the program name and the editor header.
+    juce::String getDisplayName() const;
     int getPort() const noexcept { return server.getPort(); }
     juce::String getTrackName() const { return trackName; }
 

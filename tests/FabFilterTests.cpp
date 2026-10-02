@@ -183,7 +183,7 @@ TEST_CASE ("Saturn: loads and its controls (measure)", "[.][fabfilter][measure]"
                   + " = " + p.getProperty ("text", {}).toString() + " " + p.getProperty ("label", {}).toString()
                   + " [" + p.getProperty ("type", {}).toString() + "]";
 
-        if (auto* choices = p.getProperty ("choices", {}).getArray())
+        if (p.getProperty ("choices", {}).isArray())
             line << " " << juce::StringArray::fromTokens (juce::JSON::toString (p.getProperty ("choices", {}), true), false).joinIntoString (" ").substring (0, 80);
 
         if (! p.getProperty ("name", {}).toString().containsIgnoreCase ("Band 2")
