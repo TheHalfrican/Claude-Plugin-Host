@@ -12,10 +12,28 @@ killall -9 AudioComponentRegistrar; auval -v aufx Chfx Clde      # refresh the A
 
 Live must rescan plug-ins (Settings → Plug-Ins → Rescan) to pick up a new build. Live 12 runs native arm64, so the build is arm64 only.
 
+## Tests
+
+```sh
+cmake --build build --target ClaudeHostTests
+ctest --test-dir build -LE validation --output-on-failure     # fast: C++ unit + integration, Python client (~15 s)
+cmake --build build --target ClaudeHostFX_All
+ctest --test-dir build -L validation --output-on-failure      # auval + pluginval on the installed AU and VST3
+PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh build        # strictest pluginval run
+```
+
+- `tests/ControlServerTests.cpp` — protocol framing (batched/split lines, split UTF-8, bad JSON, arrays, oversized input, shutdown).
+- `tests/InstanceRegistryTests.cpp` — publish/remove, tag collisions, dead-process and junk entries.
+- `tests/HostProcessorTests.cpp` — the real host with Apple's built-in AUs (AULowpass, AUDelay): loading, every command, text values with units, audio really filtered, bit-exact passthrough, state round-trip, tag re-roll on duplicate, the socket path end to end, closing with a request in flight, the editor.
+- `tests/test_host_ctl.py` — the Python client against a fake host.
+- `tests/validate_plugin.sh` — auval and pluginval (downloads pluginval into `build/tools`).
+
+The test program sets `CLAUDE_HOST_REGISTRY_DIR` to a temp folder so it never touches instances running in Live. Run the suite before every commit.
+
 ## Layout
 
 - `Source/HostProcessor.*` — the AudioProcessor. Hosts the inner plugin (AU preferred, then VST3), passes audio through it, saves/restores the inner plugin and its state, and handles control commands. All inner-plugin access happens on the message thread; the audio thread only ever `tryLock`s `innerLock`.
-- `Source/ControlServer.*` — line-delimited JSON over TCP on 127.0.0.1, OS-assigned port. One request object per line, one reply per line.
+- `Source/ControlServer.*` — line-delimited JSON over TCP on 127.0.0.1, OS-assigned port. One request object per line, one reply per line. Client sockets set `SO_NOSIGPIPE`: without it, a client disconnecting mid-reply would SIGPIPE-kill the host process (Live).
 - `Source/InstanceRegistry.*` — one JSON file per instance in `~/Library/Application Support/ClaudePluginHost/instances/` (pid, port, tag, track, plugin).
 - `Source/HostEditor.*` — header bar plus the inner plugin's own editor embedded below.
 
@@ -25,7 +43,9 @@ The wrapper's only Live-visible parameter is **Instance Tag** (1–9999, unique 
 
 `info`, `list_plugins {query}`, `load {name, format?}`, `unload`, `params {filter}`, `get {param}`, `set {param, value 0..1 | text "2.5 kHz"}`, `programs`, `set_program {index}`. `param` is a name (exact, or a unique substring) or an index. `set` replies with the value the plugin actually kept.
 
-Client: `~/.claude/skills/ableton-live-12/scripts/host_ctl.py` (part of the ableton-live-12 skill).
+Client: `tools/host_ctl.py`. The ableton-live-12 skill symlinks it as `~/.claude/skills/ableton-live-12/scripts/host_ctl.py`.
+
+Text values: the host checks what the plugin displays for the converted value and, if it doesn't match, bisects the range using the plugin's own display text (units: Hz/kHz, ms/s, dB, %; AU unit labels are used too). Words ("On", choice names) are only accepted if the plugin shows exactly that word. Out-of-range or unknown text is refused and the parameter is left alone.
 
 ## Phases
 

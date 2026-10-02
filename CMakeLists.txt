@@ -15,6 +15,21 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(JUCE)
 
+# Shared by the plugins and the test program.
+set(CLAUDE_HOST_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/HostProcessor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/HostEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ControlServer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/InstanceRegistry.cpp)
+
+set(CLAUDE_HOST_DEFINITIONS
+    JUCE_PLUGINHOST_AU=1
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+
 # One codebase, two plugins: an effect host (phase 1) and, later, an
 # instrument host. macOS registers effects and instruments as different
 # Audio Unit types, so each needs its own bundle.
@@ -33,20 +48,11 @@ function(claude_host_plugin target product_name plugin_code is_synth)
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
         COPY_PLUGIN_AFTER_BUILD  TRUE)
 
-    target_sources(${target} PRIVATE
-        Source/HostProcessor.cpp
-        Source/HostEditor.cpp
-        Source/ControlServer.cpp
-        Source/InstanceRegistry.cpp)
+    target_sources(${target} PRIVATE ${CLAUDE_HOST_SOURCES})
 
     target_compile_definitions(${target} PUBLIC
         CLAUDE_HOST_IS_SYNTH=$<BOOL:${is_synth}>
-        JUCE_PLUGINHOST_AU=1
-        JUCE_PLUGINHOST_VST3=1
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0)
+        ${CLAUDE_HOST_DEFINITIONS})
 
     target_link_libraries(${target}
         PRIVATE
@@ -59,3 +65,10 @@ function(claude_host_plugin target product_name plugin_code is_synth)
 endfunction()
 
 claude_host_plugin(ClaudeHostFX "Claude Host FX" Chfx FALSE)
+
+option(CLAUDE_HOST_BUILD_TESTS "Build the test suite" ON)
+
+if (CLAUDE_HOST_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
