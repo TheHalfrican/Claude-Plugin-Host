@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 
 
 class CommandError(Exception):
@@ -522,10 +522,15 @@ class Commands(object):
         name = str(request.get("name", "")).strip()
         if not name:
             raise CommandError('give the new "name"')
+        old = dv.name
         try:
             dv.name = name
         except Exception as e:
-            raise CommandError("Live won't rename %s: %s" % (dv.name, e))
+            raise CommandError("Live won't rename %s: %s" % (old, e))
+        # Live accepts renaming a plugin device without complaint but keeps
+        # the plugin's own name, so check what it actually did.
+        if dv.name != name:
+            raise CommandError("Live kept the name %r: scripts can rename Live's own devices but not plugins" % dv.name)
         return {"device": dv.name}
 
     def cmd_name_hosts(self, request):
@@ -560,9 +565,12 @@ class Commands(object):
                 if dv.name != wanted:
                     try:
                         dv.name = wanted
-                    except Exception as e:
-                        raise CommandError("Live won't rename devices: %s" % e)
-                renamed.append({"track": t.name, "tag": tag, "name": wanted})
+                    except Exception:
+                        pass
+                # Report what Live actually shows, not what was asked for:
+                # it ignores renames of plugin devices.
+                renamed.append({"track": t.name, "tag": tag, "plugin": plugin, "name": dv.name,
+                                "renamed": dv.name == wanted})
         return {"hosts": renamed}
 
     def cmd_duplicate_track(self, request):

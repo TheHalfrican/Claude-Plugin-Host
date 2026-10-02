@@ -56,10 +56,21 @@ class DeviceIO(object):
 
 class Device(object):
     def __init__(self, name, params=(), class_name="PluginDevice", sidechain=None):
-        self.name, self.class_name = name, class_name
+        self._name, self.class_name = name, class_name
         self.class_display_name = name  # the device type; stays put when renamed
         self.parameters = list(params)
         self.input_routings = [sidechain] if sidechain else []
+
+    # Like Live: Live's own devices can be renamed by a script; plugin
+    # devices silently keep their plugin's name.
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        if self.class_name not in ("PluginDevice", "AuPluginDevice"):
+            self._name = value
 
 
 class Envelope(object):

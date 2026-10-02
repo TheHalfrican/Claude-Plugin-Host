@@ -63,11 +63,11 @@ A Live Remote Script (Python, runs inside Live) serving line-delimited JSON on `
 
 - `commands.py`: all logic, written against Live's API (LOM) but importing nothing from Live. It's tested with fake Live objects (`tests/bridge/fake_live.py`). Bump `VERSION` when changing it.
 - `server.py`: the socket server, loopback only, SO_NOSIGPIPE, one thread per client.
-- `bridge.py`: the Live side (ControlSurface). It runs each request on Live's main thread via `schedule_message`, handles `reload` (re-imports `commands.py`, so no restart needed), and calls `Commands.background_tick()` every ~2 s, which renames Claude Host devices after their plugin. Changes to `bridge.py` itself need a Live restart.
+- `bridge.py`: the Live side (ControlSurface). It runs each request on Live's main thread via `schedule_message`, handles `reload` (re-imports `commands.py`, so no restart needed), and calls `Commands.background_tick()` every ~2 s (housekeeping; currently it tries `name_hosts`, which only changes anything for renamable devices). Changes to `bridge.py` itself need a Live restart.
 - Live API findings (12.2.7):
   - Continuous parameters **raise** on `value_items`.
   - Plugin devices have **no `input_routings`**, so their sidechain dropdown isn't scriptable. A track's output can instead go to `<track>` / `Sidechain-<device>` (`feed_sidechain`).
-  - `Device.name` is settable.
+  - `Device.name` is settable for Live's own devices only. On a **plugin** device Live accepts the assignment silently and keeps the plugin's name, so always read back. The fakes mimic this. Hosts show "<plugin> - Claude Host #<tag>" as their program name and in their editor header instead.
   - Clip envelope events at or past the clip's end are dropped.
   - Unnamed routing channels have an empty `display_name`.
   - `bridge_ctl.py inspect` lists what Live exposes on a track or device.

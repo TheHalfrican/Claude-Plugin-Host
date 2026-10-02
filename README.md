@@ -20,6 +20,7 @@ A plugin that *hosts* the real plugin doesn't have that limit: it talks to the p
 ## What it does
 
 - **Effect host** (`Claude Host FX`) and **instrument host** (`Claude Host Instrument`, MIDI passed through). Each only offers plugins of its own kind.
+- **Named for what they hold**: each host's program, and the header of its own window, read like "FF Pro-C 2 - Claude Host #1005".
 - **Every parameter by name**, with the plugin's own display text and choices, plus factory programs where the plugin exposes them.
 - **Real units**: `"2.5 kHz"`, `"-4 dB"`, `"250 ms"`, `"4:1"`, `"on"`, `"MG Low 12"`, `"1/4"`. Each value is checked against what the plugin displays (JUCE's text conversion is unreliable for many plugins); out-of-range or unknown text is refused and the parameter left alone. Every reply reports the value the plugin actually kept.
 - **Sidechain** on the effect host, passed to the hosted plugin's sidechain (e.g. Pro-C 2 ducking to a kick).
@@ -94,13 +95,12 @@ tools/bridge_ctl.py set-track "Melody" volume="+1.5 dB" "send A=-20 dB"
 tools/bridge_ctl.py set-routing "Kick (SC)" output "Sends Only"
 tools/bridge_ctl.py feed-sidechain "Kick (SC)" "Bass"        # route a key into a device's sidechain
 tools/bridge_ctl.py envelope "Melody" mixer "send B" --clip 0 "12=-inf dB" "16=-12 dB"
-tools/bridge_ctl.py name-hosts                                # "FF Pro-Q 2 (Claude Host)"
 tools/bridge_ctl.py --help                                    # everything else
 ```
 
-Values are given as Live displays them ("-6 dB", "25L", "C", "Off") and land exactly on that reading. The bridge also renames Claude Host devices after the plugin they hold, every couple of seconds. After changing bridge code, `tools/install_bridge.sh && tools/bridge_ctl.py reload` loads it without restarting Live (except for changes to `bridge.py` itself).
+Values are given as Live displays them ("-6 dB", "25L", "C", "Off") and land exactly on that reading. After changing bridge code, `tools/install_bridge.sh && tools/bridge_ctl.py reload` loads it without restarting Live (except for changes to `bridge.py` itself).
 
-What Live's API doesn't allow, and so neither does the bridge: setting a plugin device's own sidechain dropdown (`feed-sidechain` routes the key track's output instead), writing the Arrangement's track automation lanes (clip envelopes work in both Session and Arrangement), and loading devices onto the master or return tracks.
+What Live's API doesn't allow, and so neither does the bridge: setting a plugin device's own sidechain dropdown (`feed-sidechain` routes the key track's output instead), renaming plugin devices (Live accepts the call but keeps the plugin's name; Live's own devices can be renamed), writing the Arrangement's track automation lanes (clip envelopes work in both Session and Arrangement), and loading devices onto the master or return tracks.
 
 ## Tests
 
@@ -122,7 +122,8 @@ CI runs the fast suite and validation on GitHub Actions (macOS, Apple Silicon) o
 ## Status and limitations
 
 - Tested in Ableton Live 12.2 on macOS, Apple Silicon, with FabFilter Pro-Q 2 / Pro-C 2 / Saturn and Xfer Serum, including sidechain ducking in Live and save/reopen. Other plugins and hosts should work but haven't been tried. Multi-output instruments are tested with fake plugins but not yet with a real one in Live.
-- Claude Bridge is tested in Live 12.2.7: mixer, routing, mute/solo, feeding a sidechain, clip automation, renaming hosts.
+- Claude Bridge is tested in Live 12.2.7: mixer, routing, mute/solo, feeding a sidechain, clip automation.
+- A real 12-track project (a copy, with Pro-Q 2, Saturn on a group, and Serum in hosts) survives save/quit/reopen with every setting intact.
 - Live's automation lanes see only the host's own parameter (Instance Tag), not the hosted plugin's.
 - Plugins whose UI only exposes settings as numbers (Pro-Q 2's band shapes, Saturn's styles) need those numbers mapped once; the hidden tests show how to measure them.
 - The hosted plugin's own preset browser still has to be used by hand when the plugin doesn't expose programs (Serum's AU doesn't).

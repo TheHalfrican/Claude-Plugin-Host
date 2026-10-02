@@ -232,28 +232,27 @@ def test_a_ramp_to_the_clip_end_still_arrives(run, song):
 
 # --- naming hosts after their plugin --------------------------------------------
 
-def test_rename_device_and_find_it_by_type_afterwards(run, song):
+def test_rename_a_live_device_and_find_it_by_type_afterwards(run, song):
     assert ok(run(cmd="rename_device", track="Keys", device="Auto Filter", name="Lo-fi Filter"))["device"] == "Lo-fi Filter"
     assert ok(run(cmd="params", track="Keys", device="Auto Filter"))["params"]   # still found by type
     assert "give the new" in err(run(cmd="rename_device", track="Keys", device=1, name=" "))
 
 
-def test_name_hosts_uses_tags_and_the_registry(run, song, tmp_path):
-    fx = song.tracks[1].devices[1]                 # "Claude Host FX", Instance Tag 0.1 -> 1000
+def test_renaming_a_plugin_device_reports_that_live_kept_its_name(run, song):
+    assert "scripts can rename Live's own devices but not plugins" in err(
+        run(cmd="rename_device", track="Bass (Host)", device="Claude Host FX", name="FF Pro-C 2 (Claude Host)"))
+    assert song.tracks[1].devices[1].name == "Claude Host FX"
+
+
+def test_name_hosts_reports_what_live_actually_shows(run, song, tmp_path):
     (tmp_path / "a.json").write_text(json.dumps({"tag": 1000, "plugin": "FF Pro-C 2"}))
     r = ok(run(cmd="name_hosts", registry=str(tmp_path)))
-    assert r["hosts"] == [{"track": "Bass (Host)", "tag": 1000, "name": "FF Pro-C 2 (Claude Host)"}]
-    assert fx.name == "FF Pro-C 2 (Claude Host)"
-
-    # Unloading the plugin puts the plain name back.
-    (tmp_path / "a.json").write_text(json.dumps({"tag": 1000, "plugin": ""}))
-    ok(run(cmd="name_hosts", registry=str(tmp_path)))
-    assert fx.name == "Claude Host FX"
+    assert r["hosts"] == [{"track": "Bass (Host)", "tag": 1000, "plugin": "FF Pro-C 2",
+                           "name": "Claude Host FX", "renamed": False}]
 
 
 def test_name_hosts_leaves_unknown_tags_alone(run, song, tmp_path):
-    ok(run(cmd="name_hosts", registry=str(tmp_path)))
-    assert song.tracks[1].devices[1].name == "Claude Host FX"
+    assert ok(run(cmd="name_hosts", registry=str(tmp_path)))["hosts"] == []
 
 
 def test_background_tick_never_raises(song):
