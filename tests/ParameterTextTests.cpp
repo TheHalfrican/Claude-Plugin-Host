@@ -180,3 +180,66 @@ TEST_CASE ("Out-of-range numbers and unknown words are refused", "[text]")
     CHECK_FALSE (convert (sw, "banana", &error).has_value());
     CHECK (error.contains ("doesn't show"));
 }
+
+TEST_CASE ("A rounded display lands in the middle of the requested reading - not on its edge", "[text]")
+{
+    FakeParameter p;   // -60..+6 dB shown to one decimal, like Live's and many plugins' faders
+    p.display = [] (float v) { return juce::String (-60.0f + v * 66.0f, 1) + " dB"; };
+
+    for (auto request : { "-6 dB", "0 dB", "-24 dB", "-6.1 dB" })
+    {
+        auto v = convert (p, request);
+        INFO (request << " -> " << (v ? p.getText (*v, 64) : juce::String ("nothing")));
+        REQUIRE (v.has_value());
+        CHECK (p.getText (*v, 64).getFloatValue() == Catch::Approx (juce::String (request).getFloatValue()).margin (0.001f));
+    }
+}
+
+TEST_CASE ("A whole-number display gives the asked-for number - not its neighbour (Serum cutoff)", "[text]")
+{
+    FakeParameter p;   // 20 .. 22000 shown as whole numbers, log scale
+    p.display = [] (float v) { return juce::String (juce::roundToInt (20.0 * std::pow (1100.0, (double) v))); };
+
+    for (auto request : { "600", "425", "1000", "8000" })
+    {
+        auto v = convert (p, request);
+        REQUIRE (v.has_value());
+        CHECK (p.getText (*v, 64) == request);
+    }
+}
+
+TEST_CASE ("A word at one position (pan's C) doesn't stop the number search", "[text]")
+{
+    FakeParameter p;   // 50L .. C .. 50R
+    p.display = [] (float v)
+    {
+        const auto pan = juce::roundToInt ((v - 0.5f) * 100.0f);
+        return pan == 0 ? juce::String ("C") : juce::String (std::abs (pan)) + (pan < 0 ? "L" : "R");
+    };
+
+    for (auto request : { "40R", "25L", "C" })
+    {
+        auto v = convert (p, request);
+        INFO (request);
+        REQUIRE (v.has_value());
+        CHECK (p.getText (*v, 64) == request);
+    }
+}
+
+TEST_CASE ("A display that starts with -inf is searched from where it turns numeric (Serum sustain)", "[text]")
+{
+    FakeParameter p;   // -inf at 0, then -48..0 dB
+    p.display = [] (float v)
+    {
+        return v <= 0.0f ? juce::String (juce::CharPointer_UTF8 ("-\xe2\x88\x9e"))   // "-∞"
+                         : juce::String (-48.0f + v * 48.0f, 1);
+    };
+
+    for (auto request : { "-9", "-24", "0" })
+    {
+        auto v = convert (p, request);
+        INFO (request);
+        REQUIRE (v.has_value());
+        CHECK (p.getText (*v, 64).getFloatValue() == Catch::Approx (juce::String (request).getFloatValue()).margin (0.001f));
+    }
+}

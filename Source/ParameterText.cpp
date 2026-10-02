@@ -130,9 +130,21 @@ namespace ParameterText
             if (auto s = displayed (direct); s && quantitiesMatch (*s, wanted->value))
                 return direct;
 
-        const auto low = displayed (0.0f), high = displayed (1.0f);
+        // Where the display is numeric. Faders and Serum's sustain show
+        // "-inf"/"-∞" at the bottom, so the numeric stretch may start (or end)
+        // a little way in.
+        float rangeStart = 0.0f, rangeEnd = 1.0f;
+        constexpr int edgeScan = 1000;
 
-        if (! low || ! high)
+        for (int i = 0; i <= edgeScan && ! displayed (rangeStart); ++i)
+            rangeStart = (float) i / (float) edgeScan;
+
+        for (int i = edgeScan; i >= 0 && ! displayed (rangeEnd); --i)
+            rangeEnd = (float) i / (float) edgeScan;
+
+        const auto low = displayed (rangeStart), high = displayed (rangeEnd);
+
+        if (! low || ! high || rangeEnd <= rangeStart)
         {
             // Not a numeric parameter after all (e.g. a menu of "1/4", "1/8"
             // that only looks like numbers): fall back to an exact match.
@@ -157,33 +169,63 @@ namespace ParameterText
             return std::nullopt;
         }
 
-        // Bisection, assuming the display is monotonic in the value.
-        float a = 0.0f, b = 1.0f;
-
-        for (int i = 0; i < 40; ++i)
+        // Some positions show a word instead of a number (pan's "C"); look
+        // just either side of them.
+        auto displayedNear = [&displayed] (float v) -> std::optional<double>
         {
-            const auto mid = 0.5f * (a + b);
-            const auto s = displayed (mid);
+            for (auto nudge : { 0.0f, 1.0e-3f, -1.0e-3f, 1.0e-2f, -1.0e-2f })
+                if (auto s = displayed (juce::jlimit (0.0f, 1.0f, v + nudge)))
+                    return s;
 
-            if (! s)
-                break;
+            return std::nullopt;
+        };
 
-            if ((*s < target) == rising)
-                a = mid;
-            else
-                b = mid;
+        // First value (going up the range) whose display satisfies pred.
+        auto firstWhere = [&displayedNear, rangeStart, rangeEnd] (auto pred)
+        {
+            float a = rangeStart, b = rangeEnd;
+
+            for (int i = 0; i < 40; ++i)
+            {
+                const auto mid = 0.5f * (a + b);
+
+                if (auto s = displayedNear (mid); s && pred (*s))
+                    b = mid;
+                else
+                    a = mid;
+            }
+
+            return b;
+        };
+
+        // Displays are rounded ("-6.0 dB" covers a stretch of values; Serum's
+        // "600" covers a stretch of cutoffs). Find the stretch that shows the
+        // target and take its middle: its edges round to the neighbouring
+        // reading, which is how "600" once came out as "599".
+        const auto eps = juce::jmax (std::abs (target) * 1.0e-9, 1.0e-12);
+        float runStart, runEnd;
+
+        if (rising)
+        {
+            runStart = firstWhere ([&] (double n) { return n >= target - eps; });
+            runEnd   = firstWhere ([&] (double n) { return n >  target + eps; });
+        }
+        else
+        {
+            runStart = firstWhere ([&] (double n) { return n <= target + eps; });
+            runEnd   = firstWhere ([&] (double n) { return n <  target - eps; });
         }
 
-        const auto result = 0.5f * (a + b);
+        const auto middle = 0.5f * (runStart + runEnd);
+
+        if (auto s = displayedNear (middle); s && quantitiesMatch (*s, target))
+            return middle;
 
         // A display that isn't monotonic (a menu of numbers) can send the
-        // bisection astray; confirm, and fall back to an exact match.
-        if (auto s = displayed (result); s && quantitiesMatch (*s, target))
-            return result;
-
+        // search astray; fall back to an exact match.
         if (auto v = findDisplayed (p, text))
             return v;
 
-        return result; // monotonic but coarse display: closest we can get
+        return runStart; // the target falls between two readings: the nearest one up
     }
 }

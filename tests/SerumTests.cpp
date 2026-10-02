@@ -103,6 +103,8 @@ TEST_CASE ("Serum's switches and menus are set by their names", "[.][serum]")
         { "Fil Type",   "MG Low 12" },
         { "LFO1Rate",   "1/8"       },
         { "SubOscShape","Sine"      },
+        { "Env1 Sus",   "-9.0"      },   // display starts at "-∞": once refused
+        { "Fil Cutoff", "600"       },   // rounded display: once came out "599"
         { "Filter On",  "off"       },
     };
 
