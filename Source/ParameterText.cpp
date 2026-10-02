@@ -60,7 +60,12 @@ namespace ParameterText
 {
     std::optional<Quantity> parseQuantity (const juce::String& text)
     {
-        const auto t = text.trim();
+        auto t = text.trim();
+
+        // Compressor ratios: "4:1" and "4.00:1" read as 4.
+        if (t.endsWith (":1") && t.dropLastCharacters (2).trim().containsOnly ("0123456789.")
+            && t.dropLastCharacters (2).trim().isNotEmpty())
+            return Quantity { t.dropLastCharacters (2).trim().getDoubleValue(), false };
 
         // The unit starts at the first letter or %; 'e' is left out so
         // exponents like "1e3" stay part of the number.

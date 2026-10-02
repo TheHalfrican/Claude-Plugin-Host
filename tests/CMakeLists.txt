@@ -38,12 +38,14 @@ endfunction()
 claude_host_tests(ClaudeHostTests 0 "Claude Host FX" ""
     ControlServerTests.cpp
     ParameterTextTests.cpp
+    RoutingTests.cpp
     InstanceRegistryTests.cpp
     HostProcessorTests.cpp
     FabFilterTests.cpp)
 
 claude_host_tests(ClaudeHostInstTests 1 "Claude Host Instrument" "instrument: "
     InstrumentHostTests.cpp
+    InstrumentRoutingTests.cpp
     SerumTests.cpp)
 
 # Any Python with pytest. CI points this at a venv, because Homebrew's

@@ -56,10 +56,22 @@ namespace
 juce::AudioProcessor::BusesProperties HostProcessor::defaultBuses()
 {
    #if CLAUDE_HOST_IS_SYNTH
-    return BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+    // Main output plus aux outputs for multi-out instruments (Kontakt,
+    // Battery...). Inner output bus N goes to our output bus N. The aux
+    // outputs start disabled; the host enables them if wanted.
+    auto buses = BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+
+    for (int i = 1; i < numInstrumentOutputs; ++i)
+        buses = buses.withOutput ("Aux " + juce::String (i), juce::AudioChannelSet::stereo(), false);
+
+    return buses;
    #else
-    return BusesProperties().withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                            .withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+    // Main in/out plus a sidechain input, passed on to the inner plugin's own
+    // sidechain (Pro-C 2 ducking to a kick, say). Disabled until the host
+    // enables it.
+    return BusesProperties().withInput  ("Input",     juce::AudioChannelSet::stereo(), true)
+                            .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)
+                            .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false);
    #endif
 }
 
@@ -116,7 +128,7 @@ void HostProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     currentBlockSize = samplesPerBlock;
     isPrepared = true;
 
-    scratch.setSize (32, samplesPerBlock, false, true, true);
+    scratch.setSize (maxInnerChannels, samplesPerBlock, false, true, true);
 
     const juce::ScopedLock sl (innerLock);
 
@@ -136,13 +148,27 @@ void HostProcessor::releaseResources()
 
 bool HostProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+    const auto monoOrStereo = [] (const juce::AudioChannelSet& set)
+    {
+        return set == juce::AudioChannelSet::mono() || set == juce::AudioChannelSet::stereo();
+    };
+
     const auto out = layouts.getMainOutputChannelSet();
 
-    if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
+    if (! monoOrStereo (out))
         return false;
 
+    // Extra buses (sidechain, aux outputs) may be off, mono or stereo.
+    for (int i = 1; i < layouts.outputBuses.size(); ++i)
+        if (! layouts.outputBuses[i].isDisabled() && ! monoOrStereo (layouts.outputBuses[i]))
+            return false;
+
+    for (int i = 1; i < layouts.inputBuses.size(); ++i)
+        if (! layouts.inputBuses[i].isDisabled() && ! monoOrStereo (layouts.inputBuses[i]))
+            return false;
+
    #if CLAUDE_HOST_IS_SYNTH
-    return true;
+    return layouts.inputBuses.isEmpty();
    #else
     return layouts.getMainInputChannelSet() == out;
    #endif
@@ -150,28 +176,51 @@ bool HostProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void HostProcessor::prepareInner (juce::AudioPluginInstance& plugin)
 {
-    // Ask for the same main layout as ours; plugins that refuse keep their own.
+    // Give the inner plugin's buses the same layout as ours, bus by bus:
+    // main to main, sidechain to sidechain, aux output N to aux output N.
+    // Buses we don't have are switched off (an instrument host has no
+    // inputs, so a synth's sidechain goes off too).
+    //
+    // Negotiated one bus at a time, so a plugin that refuses one choice (a
+    // mono sidechain, say) doesn't lose the rest: for each bus try ours, then
+    // stereo, then mono, then off, and keep the first it accepts.
+    // processBlock converts mono/stereo either way.
     auto layout = plugin.getBusesLayout();
 
-    if (! layout.outputBuses.isEmpty())
-        layout.outputBuses.getReference (0) = getChannelLayoutOfBus (false, 0);
+    const auto negotiate = [&] (bool isInput)
+    {
+        auto& buses = isInput ? layout.inputBuses : layout.outputBuses;
 
-   #if CLAUDE_HOST_IS_SYNTH
-    // An instrument host has no audio input, so switch off the synth's
-    // inputs (sidechain etc.) where it allows that.
-    auto noInputs = layout;
+        for (int b = 0; b < buses.size(); ++b)
+        {
+            const auto ours = b < getBusCount (isInput) ? getChannelLayoutOfBus (isInput, b)
+                                                        : juce::AudioChannelSet::disabled();
 
-    for (auto& bus : noInputs.inputBuses)
-        bus = juce::AudioChannelSet::disabled();
+            juce::Array<juce::AudioChannelSet> candidates { ours };
 
-    if (! plugin.setBusesLayout (noInputs))
-        plugin.setBusesLayout (layout);
-   #else
-    if (! layout.inputBuses.isEmpty())
-        layout.inputBuses.getReference (0) = getChannelLayoutOfBus (true, 0);
+            if (! ours.isDisabled())
+                candidates.addArray ({ juce::AudioChannelSet::stereo(), juce::AudioChannelSet::mono() });
 
+            candidates.add (juce::AudioChannelSet::disabled());
+
+            for (const auto& candidate : candidates)
+            {
+                auto trial = layout;
+                (isInput ? trial.inputBuses : trial.outputBuses).getReference (b) = candidate;
+
+                if (plugin.checkBusesLayoutSupported (trial))
+                {
+                    buses.getReference (b) = candidate;
+                    break;
+                }
+            }
+        }
+    };
+
+    negotiate (true);
+    negotiate (false);
     plugin.setBusesLayout (layout);
-   #endif
+
     plugin.setRateAndBufferSizeDetails (currentSampleRate, currentBlockSize);
     plugin.setNonRealtime (isNonRealtime());
     plugin.prepareToPlay (currentSampleRate, currentBlockSize);
@@ -197,38 +246,57 @@ void HostProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     inner->setPlayHead (getPlayHead());
 
-   #if CLAUDE_HOST_IS_SYNTH
-    // Live's buffer for an instrument isn't guaranteed to be silent; the
-    // synth renders into it, so anything left over must not reach the
-    // synth's inputs or get mixed into its output.
-    buffer.clear();
-   #endif
-
     const auto numSamples = buffer.getNumSamples();
     const auto innerChannels = juce::jmax (inner->getTotalNumInputChannels(), inner->getTotalNumOutputChannels());
 
-    if (innerChannels <= buffer.getNumChannels())
+    if (innerChannels > scratch.getNumChannels() || numSamples > scratch.getNumSamples())
     {
-        juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), innerChannels, numSamples);
-        inner->processBlock (view, midi);
+        // Bigger than we prepared for: skip this block rather than allocate
+        // on the audio thread (pass audio through, or silence for synths).
+       #if CLAUDE_HOST_IS_SYNTH
+        buffer.clear();
+       #endif
         return;
     }
 
-    // The inner plugin wants more channels than Live gave us (e.g. a disabled
-    // sidechain counted in its layout): run it on scratch space, copy back ours.
-    if (innerChannels > scratch.getNumChannels() || numSamples > scratch.getNumSamples())
-        return;
+    // Route bus by bus through scratch space laid out the way the inner
+    // plugin expects: our input bus N -> its input bus N, its output bus N ->
+    // our output bus N. Buses either side lacks get silence. Everything
+    // starts cleared, so for an instrument nothing left in Live's buffer
+    // reaches the synth or its output.
+    juce::AudioBuffer<float> work (scratch.getArrayOfWritePointers(), innerChannels, numSamples);
+    work.clear();
 
-    juce::AudioBuffer<float> view (scratch.getArrayOfWritePointers(), innerChannels, numSamples);
-    view.clear();
+    const auto copyBus = [numSamples] (const juce::AudioBuffer<float>& from, juce::AudioBuffer<float>& to)
+    {
+        if (from.getNumChannels() == 0)
+        {
+            to.clear();
+            return;
+        }
 
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        view.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+        // Mono to stereo duplicates; stereo to mono takes the left channel.
+        for (int ch = 0; ch < to.getNumChannels(); ++ch)
+            to.copyFrom (ch, 0, from, juce::jmin (ch, from.getNumChannels() - 1), 0, numSamples);
+    };
 
-    inner->processBlock (view, midi);
+    for (int b = 0; b < juce::jmin (inner->getBusCount (true), getBusCount (true)); ++b)
+    {
+        auto to = inner->getBusBuffer (work, true, b);
+        copyBus (getBusBuffer (buffer, true, b), to);
+    }
 
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        buffer.copyFrom (ch, 0, view, ch, 0, numSamples);
+    inner->processBlock (work, midi);
+
+    for (int b = 0; b < getBusCount (false); ++b)
+    {
+        auto to = getBusBuffer (buffer, false, b);
+
+        if (b < inner->getBusCount (false))
+            copyBus (inner->getBusBuffer (work, false, b), to);
+        else
+            to.clear();
+    }
 }
 
 double HostProcessor::getTailLengthSeconds() const
@@ -367,6 +435,17 @@ juce::String HostProcessor::loadPlugin (const juce::PluginDescription& descripti
 void HostProcessor::unloadPlugin()
 {
     installInner (nullptr);
+}
+
+juce::String HostProcessor::loadPluginInstance (std::unique_ptr<juce::AudioPluginInstance> plugin)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+
+    if (plugin == nullptr)
+        return "no plugin given";
+
+    installInner (std::move (plugin));
+    return {};
 }
 
 void HostProcessor::installInner (std::unique_ptr<juce::AudioPluginInstance> newInner)

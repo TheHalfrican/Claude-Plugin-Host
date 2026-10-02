@@ -28,6 +28,7 @@ PLUGINVAL_STRICTNESS=10 tests/validate_plugin.sh build        # strictest plugin
 - `tests/HostProcessorTests.cpp` — the real host with Apple's built-in AUs (AULowpass, AUDelay): loading, every command, text values with units, audio really filtered, bit-exact passthrough, state round-trip, tag re-roll on duplicate, the socket path end to end, closing with a request in flight, the editor.
 - `tests/InstrumentHostTests.cpp` — the instrument host with DLSMusicDevice: silence without notes (even with junk in the buffer), notes sound, sample-accurate note timing, note-off release, unload mid-note, params, state, socket.
 - `tests/FabFilterTests.cpp`, `tests/SerumTests.cpp` — hidden (`[fabfilter]`, `[serum]`): need the user's plugins. They pin down unlabelled codes measured from the audio; `[measure]` ones only print.
+- `tests/RoutingTests.cpp`, `tests/InstrumentRoutingTests.cpp` — bus routing with fake plugins (`tests/FakePlugin.h`): sidechain on/off/mono, mono-only plugins, plugins refusing layouts, latency and tail, re-prepare after a layout change, multi-out mapping, MIDI timing. `HostProcessor::loadPluginInstance()` hosts an already-made plugin for this.
 - `tests/test_host_ctl.py` — the Python client against a fake host.
 - `tests/validate_plugin.sh` — auval and pluginval (downloads pluginval into `build/tools`).
 
@@ -60,8 +61,8 @@ Text values: see `Source/ParameterText.*`. Out-of-range or unknown text is refus
 1. Effect host (`ClaudeHostFX`). ← current. Verified in Live 12.2.7: loads FF Pro-Q 2 (AU), all 190 params listed, set by real units ("250 Hz", "-4 dB") with exact read-back; Live reads the Instance Tag. Save, quit and reopen restores the inner plugin, its settings and the tag (also across a rebuild). Still to test: FF Saturn.
 
 Live caches a loaded plugin's code per process: after rebuilding, quit and reopen Live to pick up the new build.
-2. Instrument host (`ClaudeHostInst`, AU type aumu `Chin`). ← current. MIDI goes through to the inner synth; the synth's inputs are disabled and the buffer cleared before it renders. Tested headless with Apple's DLSMusicDevice (`ClaudeHostInstTests`) and the user's Serum 1 (hidden `[serum]` tests: 288 params, plays). Still to test: in Live. Serum 2 is unlicensed for now.
-3. Sidechain, multi-out, latency edge cases, state-save tests on real projects; wire into the skill.
+2. Instrument host (`ClaudeHostInst`, AU type aumu `Chin`). Done. MIDI goes through to the inner synth; the synth's inputs are disabled and the buffer cleared before it renders. Tested headless with Apple's DLSMusicDevice (`ClaudeHostInstTests`) and the user's Serum 1 (hidden `[serum]` tests: 288 params, plays). Still to test: in Live. Serum 2 is unlicensed for now.
+3. ← current. Done: effect host sidechain input (bus 1, off by default) passed to the inner plugin's sidechain; instrument host has 8 stereo outputs (main + 7 aux, off by default), inner output N → ours N; inner buses negotiated one at a time (ours, then stereo, mono, off) so one refusal doesn't lose the rest; processBlock routes bus by bus through scratch (mono↔stereo bridged, missing buses silent); latency/tail follow the inner plugin. Tested with fake plugins (`tests/FakePlugin.h`, `RoutingTests.cpp`, `InstrumentRoutingTests.cpp`) and real Pro-C 2 sidechain ducking (`[fabfilter]`: needs Side Chain Expert Mode 1 + Side Chain Input 1). Still to do: sidechain and multi-out in Live itself; state-save test on a copy of a real project.
 
 Test only in a blank Live set, never the user's projects.
 

@@ -305,3 +305,113 @@ TEST_CASE ("Saturn: Drive adds harmonics and Mix 0% stays dry", "[.][fabfilter]"
     INFO ("3rd harmonic with Mix 0%: " << dryH3 << " dB");
     CHECK (dryH3 < drivenH3 - 20.0f);
 }
+
+TEST_CASE ("Pro-C 2: list its parameters (measure)", "[.][fabfilter][measure]")
+{
+    HostProcessor host;
+    host.prepareToPlay (sampleRate, blockSize);
+    REQUIRE (isOk (run (host, R"({"cmd":"load","name":"FF Pro-C 2"})")));
+
+    const auto params = run (host, R"({"cmd":"params"})");
+    juce::StringArray lines;
+
+    for (const auto& p : *params.getProperty ("params", {}).getArray())
+        lines.add (p.getProperty ("index", 0).toString() + " " + p.getProperty ("name", {}).toString() + " = "
+                   + p.getProperty ("text", {}).toString() + " [" + p.getProperty ("type", {}).toString() + "] "
+                   + juce::JSON::toString (p.getProperty ("choices", {}), true).substring (0, 60));
+
+    auto* inner = host.getInnerPlugin();
+    WARN ("Pro-C 2 buses in/out: " << inner->getBusCount (true) << "/" << inner->getBusCount (false)
+          << (inner->getBusCount (true) > 1 ? " (input 2: " + inner->getBus (true, 1)->getName() + ")" : juce::String()));
+    WARN ("Pro-C 2 params:\n" << lines.joinIntoString ("\n"));
+}
+
+namespace
+{
+    // Main-output level (dB) of a 1 kHz tone at -12 dBFS through a host with
+    // its sidechain on, keyed by a 100 Hz tone of the given level (0 = none).
+    float keyedLevel (HostProcessor& host, float keyGain)
+    {
+        juce::AudioBuffer<float> buffer (host.getTotalNumInputChannels(), blockSize);
+        juce::MidiBuffer midi;
+        double mainPhase = 0.0, keyPhase = 0.0;
+        float out = 0.0f;
+
+        for (int i = 0; i < 80; ++i)
+        {
+            auto main = host.getBusBuffer (buffer, true, 0);
+            auto key = host.getBusBuffer (buffer, true, 1);
+            test::fillSine (main, 1000.0, sampleRate, mainPhase, 0.25f);
+            test::fillSine (key, 100.0, sampleRate, keyPhase, keyGain);
+            host.processBlock (buffer, midi);
+            out = host.getBusBuffer (buffer, false, 0).getRMSLevel (0, 0, blockSize);
+        }
+
+        return juce::Decibels::gainToDecibels (out / (0.25f / std::sqrt (2.0f)));
+    }
+}
+
+TEST_CASE ("Pro-C 2 in the host ducks to the host's sidechain", "[.][fabfilter]")
+{
+    HostProcessor host;
+    auto layout = host.getBusesLayout();
+    layout.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+    REQUIRE (host.setBusesLayout (layout));
+    host.prepareToPlay (sampleRate, blockSize);
+    REQUIRE (isOk (run (host, R"({"cmd":"load","name":"FF Pro-C 2"})")));
+    REQUIRE (host.getInnerPlugin()->getBus (true, 1)->isEnabled()); // its sidechain got switched on
+
+    set (host, "Threshold", "-40 dB");
+    set (host, "Ratio", "20:1");
+    set (host, "Knee", "0 dB");
+    set (host, "Attack", "0.1 ms");
+    set (host, "Release", "10 ms");
+    set (host, "Auto Gain", "0");
+
+    SECTION ("external key: a loud kick ducks, silence doesn't")
+    {
+        // Pro-C 2 only listens to its external input in expert mode.
+        set (host, "Side Chain Expert Mode", "1");
+        set (host, "Side Chain Input", "1");
+        const auto ducked = keyedLevel (host, 0.9f);
+        const auto open = keyedLevel (host, 0.0f);
+        INFO ("keyed " << ducked << " dB, unkeyed " << open << " dB");
+        CHECK (ducked < -10.0f);
+        CHECK (std::abs (open) < 1.0f);
+    }
+
+    SECTION ("internal key: the main signal compresses itself, whatever the sidechain does")
+    {
+        set (host, "Side Chain Input", "0");
+        const auto withKey = keyedLevel (host, 0.9f);
+        const auto withoutKey = keyedLevel (host, 0.0f);
+        INFO ("with key " << withKey << " dB, without " << withoutKey << " dB");
+        CHECK (withoutKey < -10.0f);
+        CHECK (std::abs (withKey - withoutKey) < 1.0f);
+    }
+}
+
+TEST_CASE ("Pro-C 2: side chain settings vs key (measure)", "[.][fabfilter][measure]")
+{
+    for (int expert = 0; expert < 2; ++expert)
+        for (int input = 0; input < 2; ++input)
+        {
+            HostProcessor host;
+            auto layout = host.getBusesLayout();
+            layout.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+            REQUIRE (host.setBusesLayout (layout));
+            host.prepareToPlay (sampleRate, blockSize);
+            REQUIRE (isOk (run (host, R"({"cmd":"load","name":"FF Pro-C 2"})")));
+
+            set (host, "Threshold", "-40 dB");
+            set (host, "Ratio", "20:1");
+            set (host, "Auto Gain", "0");
+            set (host, "Side Chain Expert Mode", juce::String (expert));
+            set (host, "Side Chain Input", juce::String (input));
+
+            const auto keyed = keyedLevel (host, 0.9f), unkeyed = keyedLevel (host, 0.0f);
+            WARN ("expert " << expert << " input " << input << ": keyed " << keyed << " dB, unkeyed " << unkeyed << " dB"
+                  << "  (inner sidechain bus enabled: " << (int) host.getInnerPlugin()->getBus (true, 1)->isEnabled()
+                  << ", channels " << host.getInnerPlugin()->getChannelCountOfBus (true, 1) << ")");
+        }
+}

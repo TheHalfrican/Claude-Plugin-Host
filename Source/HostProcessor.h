@@ -49,6 +49,12 @@ public:
     juce::String loadPlugin (const juce::PluginDescription& description);
     void unloadPlugin();
 
+    // Hosts an already-created plugin (tests use this with fake plugins).
+    juce::String loadPluginInstance (std::unique_ptr<juce::AudioPluginInstance>);
+
+    static constexpr int numInstrumentOutputs = 8;   // stereo buses: main + 7 aux
+    static constexpr int maxInnerChannels = 64;      // scratch space per block
+
     // Runs one control command (the same JSON the socket accepts) and returns
     // the reply. The socket path calls this; tests call it directly.
     juce::var runCommand (const juce::var& request);

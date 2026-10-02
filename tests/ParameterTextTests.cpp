@@ -75,6 +75,8 @@ TEST_CASE ("parseQuantity reads numbers with units into base units", "[text]")
     CHECK_FALSE (parseQuantity ("").has_value());
     CHECK_FALSE (parseQuantity ("1/4").has_value());   // a menu entry, not 1
     CHECK_FALSE (parseQuantity ("3:2").has_value());
+    CHECK (parseQuantity ("4:1")->value == Catch::Approx (4.0));      // compressor ratio
+    CHECK (parseQuantity ("4.00:1")->value == Catch::Approx (4.0));
 }
 
 TEST_CASE ("An on/off switch not marked discrete is set by word (Serum style)", "[text]")
