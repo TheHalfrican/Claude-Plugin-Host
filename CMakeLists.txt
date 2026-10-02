@@ -20,7 +20,8 @@ set(CLAUDE_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/HostProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/HostEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/ControlServer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/InstanceRegistry.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/InstanceRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ParameterText.cpp)
 
 set(CLAUDE_HOST_DEFINITIONS
     JUCE_PLUGINHOST_AU=1

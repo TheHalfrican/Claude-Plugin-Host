@@ -40,6 +40,7 @@ The test program sets `CLAUDE_HOST_REGISTRY_DIR` to a temp folder so it never to
 - `Source/HostProcessor.*` — the AudioProcessor. Hosts the inner plugin (AU preferred, then VST3), passes audio through it, saves/restores the inner plugin and its state, and handles control commands. All inner-plugin access happens on the message thread; the audio thread only ever `tryLock`s `innerLock`.
 - `Source/ControlServer.*` — line-delimited JSON over TCP on 127.0.0.1, OS-assigned port. One request object per line, one reply per line. Client sockets set `SO_NOSIGPIPE`: without it, a client disconnecting mid-reply would SIGPIPE-kill the host process (Live).
 - `Source/InstanceRegistry.*` — one JSON file per instance in `~/Library/Application Support/ClaudePluginHost/instances/` (pid, port, tag, track, plugin).
+- `Source/ParameterText.*` — text to 0..1 values, checked against the plugin's own display: numbers with units (bisection over the display), words and menu entries (exact match, scanning the range when the plugin doesn't mark switches/menus as discrete, as Serum doesn't). "1/4"-style entries count as text, not numbers. Tested directly with fake parameters (`tests/ParameterTextTests.cpp`).
 - `Source/HostEditor.*` — header bar plus the inner plugin's own editor embedded below.
 
 The wrapper's only Live-visible parameter is **Instance Tag** (1–9999, unique among running instances). AbletonMCP can read it on the device, which maps a Live track/device to a registry entry and port.
@@ -52,7 +53,7 @@ Each host only lists plugins it can host: AU identifiers carry the type (`AudioU
 
 Client: `tools/host_ctl.py`. The ableton-live-12 skill symlinks it as `~/.claude/skills/ableton-live-12/scripts/host_ctl.py`.
 
-Text values: the host checks what the plugin displays for the converted value and, if it doesn't match, bisects the range using the plugin's own display text (units: Hz/kHz, ms/s, dB, %; AU unit labels are used too). Words ("On", choice names) are only accepted if the plugin shows exactly that word. Out-of-range or unknown text is refused and the parameter is left alone.
+Text values: see `Source/ParameterText.*`. Out-of-range or unknown text is refused and the parameter is left alone. VST3s are listed by file name (JUCE gives their path).
 
 ## Phases
 

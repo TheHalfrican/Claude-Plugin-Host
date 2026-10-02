@@ -37,6 +37,7 @@ endfunction()
 
 claude_host_tests(ClaudeHostTests 0 "Claude Host FX" ""
     ControlServerTests.cpp
+    ParameterTextTests.cpp
     InstanceRegistryTests.cpp
     HostProcessorTests.cpp
     FabFilterTests.cpp)

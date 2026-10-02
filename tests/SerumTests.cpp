@@ -86,3 +86,56 @@ TEST_CASE ("Serum's main controls are reachable by name", "[.][serum]")
     WARN ("Serum parameters:\n" << found.joinIntoString ("\n"));
     CHECK (found.size() > 10);
 }
+
+TEST_CASE ("Serum's switches and menus are set by their names", "[.][serum]")
+{
+    HostProcessor host;
+    host.prepareToPlay (sampleRate, blockSize);
+    REQUIRE (isOk (run (host, R"({"cmd":"load","name":"Serum"})")));
+
+    // Serum doesn't mark these as discrete, which is what first broke
+    // setting them by name in Live.
+    struct Case { const char* param; const char* text; };
+    const Case cases[] = {
+        { "Filter On",  "on"        },
+        { "Osc S On",   "on"        },
+        { "Fil Type",   "MG Low 24" },
+        { "Fil Type",   "MG Low 12" },
+        { "LFO1Rate",   "1/8"       },
+        { "SubOscShape","Sine"      },
+        { "Filter On",  "off"       },
+    };
+
+    for (const auto& c : cases)
+    {
+        const auto reply = run (host, R"({"cmd":"set","param":")" + juce::String (c.param) + R"(","text":")" + c.text + R"("})");
+        INFO (c.param << " = " << c.text << ": " << juce::JSON::toString (reply, true));
+        REQUIRE (isOk (reply));
+        CHECK (reply.getProperty ("param", {}).getProperty ("text", {}).toString().equalsIgnoreCase (c.text));
+    }
+}
+
+TEST_CASE ("VST3 plugins are listed by name - not by file path", "[.][serum]")
+{
+    HostProcessor host;
+    const auto reply = run (host, R"({"cmd":"list_plugins","query":"serum"})");
+    REQUIRE (isOk (reply));
+
+    bool sawVst3 = false;
+
+    for (const auto& p : *reply.getProperty ("plugins", {}).getArray())
+    {
+        const auto name = p.getProperty ("name", {}).toString();
+        INFO (name << " (" << p.getProperty ("format", {}).toString() << ")");
+        CHECK_FALSE (name.startsWithChar ('/'));
+        CHECK_FALSE (name.endsWith (".vst3"));
+        sawVst3 = sawVst3 || p.getProperty ("format", {}).toString() == "VST3";
+    }
+
+    CHECK (sawVst3);
+
+    // With an AU and a VST3 of the same name, loading still prefers the AU.
+    const auto loaded = run (host, R"({"cmd":"load","name":"Serum"})");
+    REQUIRE (isOk (loaded));
+    CHECK (loaded.getProperty ("plugin", {}).getProperty ("format", {}).toString() == "AudioUnit");
+}
